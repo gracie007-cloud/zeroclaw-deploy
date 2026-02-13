@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::Instant;
 
 /// How much autonomy the agent has
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -19,6 +21,47 @@ impl Default for AutonomyLevel {
     }
 }
 
+/// Sliding-window action tracker for rate limiting.
+#[derive(Debug)]
+pub struct ActionTracker {
+    /// Timestamps of recent actions (kept within the last hour).
+    actions: Mutex<Vec<Instant>>,
+}
+
+impl ActionTracker {
+    pub fn new() -> Self {
+        Self {
+            actions: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Record an action and return the current count within the window.
+    pub fn record(&self) -> usize {
+        let mut actions = self.actions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let cutoff = Instant::now().checked_sub(std::time::Duration::from_secs(3600)).unwrap_or_else(Instant::now);
+        actions.retain(|t| *t > cutoff);
+        actions.push(Instant::now());
+        actions.len()
+    }
+
+    /// Count of actions in the current window without recording.
+    pub fn count(&self) -> usize {
+        let mut actions = self.actions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let cutoff = Instant::now().checked_sub(std::time::Duration::from_secs(3600)).unwrap_or_else(Instant::now);
+        actions.retain(|t| *t > cutoff);
+        actions.len()
+    }
+}
+
+impl Clone for ActionTracker {
+    fn clone(&self) -> Self {
+        let actions = self.actions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        Self {
+            actions: Mutex::new(actions.clone()),
+        }
+    }
+}
+
 /// Security policy enforced on all tool executions
 #[derive(Debug, Clone)]
 pub struct SecurityPolicy {
@@ -29,6 +72,7 @@ pub struct SecurityPolicy {
     pub forbidden_paths: Vec<String>,
     pub max_actions_per_hour: u32,
     pub max_cost_per_day_cents: u32,
+    pub tracker: ActionTracker,
 }
 
 impl Default for SecurityPolicy {
@@ -60,6 +104,7 @@ impl Default for SecurityPolicy {
             ],
             max_actions_per_hour: 20,
             max_cost_per_day_cents: 500,
+            tracker: ActionTracker::new(),
         }
     }
 }
@@ -112,6 +157,18 @@ impl SecurityPolicy {
         self.autonomy != AutonomyLevel::ReadOnly
     }
 
+    /// Record an action and check if the rate limit has been exceeded.
+    /// Returns `true` if the action is allowed, `false` if rate-limited.
+    pub fn record_action(&self) -> bool {
+        let count = self.tracker.record();
+        count <= self.max_actions_per_hour as usize
+    }
+
+    /// Check if the rate limit would be exceeded without recording.
+    pub fn is_rate_limited(&self) -> bool {
+        self.tracker.count() >= self.max_actions_per_hour as usize
+    }
+
     /// Build from config sections
     pub fn from_config(
         autonomy_config: &crate::config::AutonomyConfig,
@@ -125,6 +182,7 @@ impl SecurityPolicy {
             forbidden_paths: autonomy_config.forbidden_paths.clone(),
             max_actions_per_hour: autonomy_config.max_actions_per_hour,
             max_cost_per_day_cents: autonomy_config.max_cost_per_day_cents,
+            tracker: ActionTracker::new(),
         }
     }
 }
@@ -361,5 +419,70 @@ mod tests {
         assert!(!p.forbidden_paths.is_empty());
         assert!(p.max_actions_per_hour > 0);
         assert!(p.max_cost_per_day_cents > 0);
+    }
+
+    // ── ActionTracker / rate limiting ───────────────────────
+
+    #[test]
+    fn action_tracker_starts_at_zero() {
+        let tracker = ActionTracker::new();
+        assert_eq!(tracker.count(), 0);
+    }
+
+    #[test]
+    fn action_tracker_records_actions() {
+        let tracker = ActionTracker::new();
+        assert_eq!(tracker.record(), 1);
+        assert_eq!(tracker.record(), 2);
+        assert_eq!(tracker.record(), 3);
+        assert_eq!(tracker.count(), 3);
+    }
+
+    #[test]
+    fn record_action_allows_within_limit() {
+        let p = SecurityPolicy {
+            max_actions_per_hour: 5,
+            ..SecurityPolicy::default()
+        };
+        for _ in 0..5 {
+            assert!(p.record_action(), "should allow actions within limit");
+        }
+    }
+
+    #[test]
+    fn record_action_blocks_over_limit() {
+        let p = SecurityPolicy {
+            max_actions_per_hour: 3,
+            ..SecurityPolicy::default()
+        };
+        assert!(p.record_action()); // 1
+        assert!(p.record_action()); // 2
+        assert!(p.record_action()); // 3
+        assert!(!p.record_action()); // 4 — over limit
+    }
+
+    #[test]
+    fn is_rate_limited_reflects_count() {
+        let p = SecurityPolicy {
+            max_actions_per_hour: 2,
+            ..SecurityPolicy::default()
+        };
+        assert!(!p.is_rate_limited());
+        p.record_action();
+        assert!(!p.is_rate_limited());
+        p.record_action();
+        assert!(p.is_rate_limited());
+    }
+
+    #[test]
+    fn action_tracker_clone_is_independent() {
+        let tracker = ActionTracker::new();
+        tracker.record();
+        tracker.record();
+        let cloned = tracker.clone();
+        assert_eq!(cloned.count(), 2);
+        tracker.record();
+        assert_eq!(tracker.count(), 3);
+        assert_eq!(cloned.count(), 2); // clone is independent
     }
 }

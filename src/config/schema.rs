@@ -183,6 +183,8 @@ pub struct TelegramConfig {
 pub struct DiscordConfig {
     pub bot_token: String,
     pub guild_id: Option<String>,
+    #[serde(default)]
+    pub allowed_users: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -190,6 +192,8 @@ pub struct SlackConfig {
     pub bot_token: String,
     pub app_token: Option<String>,
     pub channel_id: Option<String>,
+    #[serde(default)]
+    pub allowed_users: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -461,6 +465,7 @@ default_temperature = 0.7
         let dc = DiscordConfig {
             bot_token: "discord-token".into(),
             guild_id: Some("12345".into()),
+            allowed_users: vec![],
         };
         let json = serde_json::to_string(&dc).unwrap();
         let parsed: DiscordConfig = serde_json::from_str(&json).unwrap();
@@ -473,6 +478,7 @@ default_temperature = 0.7
         let dc = DiscordConfig {
             bot_token: "tok".into(),
             guild_id: None,
+            allowed_users: vec![],
         };
         let json = serde_json::to_string(&dc).unwrap();
         let parsed: DiscordConfig = serde_json::from_str(&json).unwrap();

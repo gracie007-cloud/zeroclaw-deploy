@@ -25,9 +25,22 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
     let mem: Arc<dyn Memory> =
         Arc::from(memory::create_memory(&config.memory, &config.workspace_dir)?);
 
+    // Extract webhook secret for authentication
+    let webhook_secret: Option<Arc<str>> = config
+        .channels_config
+        .webhook
+        .as_ref()
+        .and_then(|w| w.secret.as_deref())
+        .map(Arc::from);
+
     println!("🦀 ZeroClaw Gateway listening on http://{addr}");
     println!("  POST /webhook  — {{\"message\": \"your prompt\"}}");
     println!("  GET  /health   — health check");
+    if webhook_secret.is_some() {
+        println!("  🔒 Webhook authentication: ENABLED (X-Webhook-Secret header required)");
+    } else {
+        println!("  ⚠️  Webhook authentication: DISABLED (set [channels.webhook] secret to enable)");
+    }
     println!("  Press Ctrl+C to stop.\n");
 
     loop {
@@ -36,6 +49,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         let model = model.clone();
         let mem = mem.clone();
         let auto_save = config.memory.auto_save;
+        let secret = webhook_secret.clone();
 
         tokio::spawn(async move {
             let mut buf = vec![0u8; 8192];
@@ -50,12 +64,25 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
 
             if let [method, path, ..] = parts.as_slice() {
                 tracing::info!("{peer} → {method} {path}");
-                handle_request(&mut stream, method, path, &request, &provider, &model, temperature, &mem, auto_save).await;
+                handle_request(&mut stream, method, path, &request, &provider, &model, temperature, &mem, auto_save, secret.as_ref()).await;
             } else {
                 let _ = send_response(&mut stream, 400, "Bad Request").await;
             }
         });
     }
+}
+
+/// Extract a header value from a raw HTTP request.
+fn extract_header<'a>(request: &'a str, header_name: &str) -> Option<&'a str> {
+    let lower_name = header_name.to_lowercase();
+    for line in request.lines() {
+        if let Some((key, value)) = line.split_once(':') {
+            if key.trim().to_lowercase() == lower_name {
+                return Some(value.trim());
+            }
+        }
+    }
+    None
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -69,6 +96,7 @@ async fn handle_request(
     temperature: f64,
     mem: &Arc<dyn Memory>,
     auto_save: bool,
+    webhook_secret: Option<&Arc<str>>,
 ) {
     match (method, path) {
         ("GET", "/health") => {
@@ -82,6 +110,19 @@ async fn handle_request(
         }
 
         ("POST", "/webhook") => {
+            // Authenticate webhook requests if a secret is configured
+            if let Some(secret) = webhook_secret {
+                let header_val = extract_header(request, "X-Webhook-Secret");
+                match header_val {
+                    Some(val) if val == secret.as_ref() => {}
+                    _ => {
+                        tracing::warn!("Webhook: rejected request — invalid or missing X-Webhook-Secret");
+                        let err = serde_json::json!({"error": "Unauthorized — invalid or missing X-Webhook-Secret header"});
+                        let _ = send_json(stream, 401, &err).await;
+                        return;
+                    }
+                }
+            }
             handle_webhook(stream, request, provider, model, temperature, mem, auto_save).await;
         }
 
@@ -157,6 +198,35 @@ async fn send_response(
         body.len()
     );
     stream.write_all(response.as_bytes()).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_header_finds_value() {
+        let req = "POST /webhook HTTP/1.1\r\nHost: localhost\r\nX-Webhook-Secret: my-secret\r\n\r\n{}";
+        assert_eq!(extract_header(req, "X-Webhook-Secret"), Some("my-secret"));
+    }
+
+    #[test]
+    fn extract_header_case_insensitive() {
+        let req = "POST /webhook HTTP/1.1\r\nx-webhook-secret: abc123\r\n\r\n{}";
+        assert_eq!(extract_header(req, "X-Webhook-Secret"), Some("abc123"));
+    }
+
+    #[test]
+    fn extract_header_missing_returns_none() {
+        let req = "POST /webhook HTTP/1.1\r\nHost: localhost\r\n\r\n{}";
+        assert_eq!(extract_header(req, "X-Webhook-Secret"), None);
+    }
+
+    #[test]
+    fn extract_header_trims_whitespace() {
+        let req = "POST /webhook HTTP/1.1\r\nX-Webhook-Secret:   spaced   \r\n\r\n{}";
+        assert_eq!(extract_header(req, "X-Webhook-Secret"), Some("spaced"));
+    }
 }
 
 async fn send_json(

@@ -9,16 +9,27 @@ use uuid::Uuid;
 pub struct DiscordChannel {
     bot_token: String,
     guild_id: Option<String>,
+    allowed_users: Vec<String>,
     client: reqwest::Client,
 }
 
 impl DiscordChannel {
-    pub fn new(bot_token: String, guild_id: Option<String>) -> Self {
+    pub fn new(bot_token: String, guild_id: Option<String>, allowed_users: Vec<String>) -> Self {
         Self {
             bot_token,
             guild_id,
+            allowed_users,
             client: reqwest::Client::new(),
         }
+    }
+
+    /// Check if a Discord user ID is in the allowlist.
+    /// Empty list or `["*"]` means allow everyone.
+    fn is_user_allowed(&self, user_id: &str) -> bool {
+        if self.allowed_users.is_empty() {
+            return true;
+        }
+        self.allowed_users.iter().any(|u| u == "*" || u == user_id)
     }
 
     fn bot_user_id_from_token(token: &str) -> Option<String> {
@@ -197,6 +208,12 @@ impl Channel for DiscordChannel {
                         continue;
                     }
 
+                    // Sender validation
+                    if !self.is_user_allowed(author_id) {
+                        tracing::warn!("Discord: ignoring message from unauthorized user: {author_id}");
+                        continue;
+                    }
+
                     // Guild filter
                     if let Some(ref gid) = guild_filter {
                         let msg_guild = d.get("guild_id").and_then(serde_json::Value::as_str).unwrap_or("");
@@ -250,7 +267,7 @@ mod tests {
 
     #[test]
     fn discord_channel_name() {
-        let ch = DiscordChannel::new("fake".into(), None);
+        let ch = DiscordChannel::new("fake".into(), None, vec![]);
         assert_eq!(ch.name(), "discord");
     }
 
@@ -267,5 +284,28 @@ mod tests {
         let token = "MTIzNDU2.fake.hmac";
         let id = DiscordChannel::bot_user_id_from_token(token);
         assert_eq!(id, Some("123456".to_string()));
+    }
+
+    #[test]
+    fn empty_allowlist_allows_everyone() {
+        let ch = DiscordChannel::new("fake".into(), None, vec![]);
+        assert!(ch.is_user_allowed("12345"));
+        assert!(ch.is_user_allowed("anyone"));
+    }
+
+    #[test]
+    fn wildcard_allows_everyone() {
+        let ch = DiscordChannel::new("fake".into(), None, vec!["*".into()]);
+        assert!(ch.is_user_allowed("12345"));
+        assert!(ch.is_user_allowed("anyone"));
+    }
+
+    #[test]
+    fn specific_allowlist_filters() {
+        let ch = DiscordChannel::new("fake".into(), None, vec!["111".into(), "222".into()]);
+        assert!(ch.is_user_allowed("111"));
+        assert!(ch.is_user_allowed("222"));
+        assert!(!ch.is_user_allowed("333"));
+        assert!(!ch.is_user_allowed("unknown"));
     }
 }

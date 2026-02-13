@@ -250,6 +250,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
         channels.push(Arc::new(DiscordChannel::new(
             dc.bot_token.clone(),
             dc.guild_id.clone(),
+            dc.allowed_users.clone(),
         )));
     }
 
@@ -257,6 +258,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
         channels.push(Arc::new(SlackChannel::new(
             sl.bot_token.clone(),
             sl.channel_id.clone(),
+            sl.allowed_users.clone(),
         )));
     }
 

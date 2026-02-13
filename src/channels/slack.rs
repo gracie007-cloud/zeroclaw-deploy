@@ -6,16 +6,27 @@ use uuid::Uuid;
 pub struct SlackChannel {
     bot_token: String,
     channel_id: Option<String>,
+    allowed_users: Vec<String>,
     client: reqwest::Client,
 }
 
 impl SlackChannel {
-    pub fn new(bot_token: String, channel_id: Option<String>) -> Self {
+    pub fn new(bot_token: String, channel_id: Option<String>, allowed_users: Vec<String>) -> Self {
         Self {
             bot_token,
             channel_id,
+            allowed_users,
             client: reqwest::Client::new(),
         }
+    }
+
+    /// Check if a Slack user ID is in the allowlist.
+    /// Empty list or `["*"]` means allow everyone.
+    fn is_user_allowed(&self, user_id: &str) -> bool {
+        if self.allowed_users.is_empty() {
+            return true;
+        }
+        self.allowed_users.iter().any(|u| u == "*" || u == user_id)
     }
 
     /// Get the bot's own user ID so we can ignore our own messages
@@ -119,6 +130,12 @@ impl Channel for SlackChannel {
                         continue;
                     }
 
+                    // Sender validation
+                    if !self.is_user_allowed(user) {
+                        tracing::warn!("Slack: ignoring message from unauthorized user: {user}");
+                        continue;
+                    }
+
                     // Skip empty or already-seen
                     if text.is_empty() || ts <= last_ts.as_str() {
                         continue;
@@ -162,13 +179,34 @@ mod tests {
 
     #[test]
     fn slack_channel_name() {
-        let ch = SlackChannel::new("xoxb-fake".into(), None);
+        let ch = SlackChannel::new("xoxb-fake".into(), None, vec![]);
         assert_eq!(ch.name(), "slack");
     }
 
     #[test]
     fn slack_channel_with_channel_id() {
-        let ch = SlackChannel::new("xoxb-fake".into(), Some("C12345".into()));
+        let ch = SlackChannel::new("xoxb-fake".into(), Some("C12345".into()), vec![]);
         assert_eq!(ch.channel_id, Some("C12345".to_string()));
+    }
+
+    #[test]
+    fn empty_allowlist_allows_everyone() {
+        let ch = SlackChannel::new("xoxb-fake".into(), None, vec![]);
+        assert!(ch.is_user_allowed("U12345"));
+        assert!(ch.is_user_allowed("anyone"));
+    }
+
+    #[test]
+    fn wildcard_allows_everyone() {
+        let ch = SlackChannel::new("xoxb-fake".into(), None, vec!["*".into()]);
+        assert!(ch.is_user_allowed("U12345"));
+    }
+
+    #[test]
+    fn specific_allowlist_filters() {
+        let ch = SlackChannel::new("xoxb-fake".into(), None, vec!["U111".into(), "U222".into()]);
+        assert!(ch.is_user_allowed("U111"));
+        assert!(ch.is_user_allowed("U222"));
+        assert!(!ch.is_user_allowed("U333"));
     }
 }

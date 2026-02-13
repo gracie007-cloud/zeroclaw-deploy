@@ -715,6 +715,7 @@ fn setup_channels() -> Result<ChannelsConfig> {
                 config.discord = Some(DiscordConfig {
                     bot_token: token,
                     guild_id: if guild.is_empty() { None } else { Some(guild) },
+                    allowed_users: vec![],
                 });
             }
             2 => {
@@ -791,6 +792,7 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     bot_token: token,
                     app_token: if app_token.is_empty() { None } else { Some(app_token) },
                     channel_id: if channel.is_empty() { None } else { Some(channel) },
+                    allowed_users: vec![],
                 });
             }
             3 => {
