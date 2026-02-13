@@ -4,21 +4,16 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 /// How much autonomy the agent has
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AutonomyLevel {
     /// Read-only: can observe but not act
     ReadOnly,
     /// Supervised: acts but requires approval for risky operations
+    #[default]
     Supervised,
     /// Full: autonomous execution within policy bounds
     Full,
-}
-
-impl Default for AutonomyLevel {
-    fn default() -> Self {
-        Self::Supervised
-    }
 }
 
 /// Sliding-window action tracker for rate limiting.
