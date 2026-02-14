@@ -1,9 +1,10 @@
 use crate::config::Config;
 use crate::memory::{self, Memory, MemoryCategory};
 use crate::providers::{self, Provider};
-use crate::security::pairing::{is_public_bind, PairingGuard};
+use crate::security::pairing::{constant_time_eq, is_public_bind, PairingGuard};
 use anyhow::Result;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -106,9 +107,11 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         let pairing = pairing.clone();
 
         tokio::spawn(async move {
-            let mut buf = vec![0u8; 8192];
-            let n = match stream.read(&mut buf).await {
-                Ok(n) if n > 0 => n,
+            // Read with 30s timeout to prevent slow-loris attacks
+            let mut buf = vec![0u8; 65_536]; // 64KB max request
+            let n = match tokio::time::timeout(Duration::from_secs(30), stream.read(&mut buf)).await
+            {
+                Ok(Ok(n)) if n > 0 => n,
                 _ => return,
             };
 
@@ -179,18 +182,31 @@ async fn handle_request(
         // Pairing endpoint — exchange one-time code for bearer token
         ("POST", "/pair") => {
             let code = extract_header(request, "X-Pairing-Code").unwrap_or("");
-            if let Some(token) = pairing.try_pair(code) {
-                tracing::info!("🔐 New client paired successfully");
-                let body = serde_json::json!({
-                    "paired": true,
-                    "token": token,
-                    "message": "Save this token — use it as Authorization: Bearer <token>"
-                });
-                let _ = send_json(stream, 200, &body).await;
-            } else {
-                tracing::warn!("🔐 Pairing attempt with invalid code");
-                let err = serde_json::json!({"error": "Invalid pairing code"});
-                let _ = send_json(stream, 403, &err).await;
+            match pairing.try_pair(code) {
+                Ok(Some(token)) => {
+                    tracing::info!("🔐 New client paired successfully");
+                    let body = serde_json::json!({
+                        "paired": true,
+                        "token": token,
+                        "message": "Save this token — use it as Authorization: Bearer <token>"
+                    });
+                    let _ = send_json(stream, 200, &body).await;
+                }
+                Ok(None) => {
+                    tracing::warn!("🔐 Pairing attempt with invalid code");
+                    let err = serde_json::json!({"error": "Invalid pairing code"});
+                    let _ = send_json(stream, 403, &err).await;
+                }
+                Err(lockout_secs) => {
+                    tracing::warn!(
+                        "🔐 Pairing locked out — too many failed attempts ({lockout_secs}s remaining)"
+                    );
+                    let err = serde_json::json!({
+                        "error": format!("Too many failed attempts. Try again in {lockout_secs}s."),
+                        "retry_after": lockout_secs
+                    });
+                    let _ = send_json(stream, 429, &err).await;
+                }
             }
         }
 
@@ -213,7 +229,7 @@ async fn handle_request(
             if let Some(secret) = webhook_secret {
                 let header_val = extract_header(request, "X-Webhook-Secret");
                 match header_val {
-                    Some(val) if val == secret.as_ref() => {}
+                    Some(val) if constant_time_eq(val, secret.as_ref()) => {}
                     _ => {
                         tracing::warn!(
                             "Webhook: rejected request — invalid or missing X-Webhook-Secret"

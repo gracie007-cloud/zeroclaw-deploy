@@ -10,6 +10,12 @@
 
 use std::collections::HashSet;
 use std::sync::Mutex;
+use std::time::Instant;
+
+/// Maximum failed pairing attempts before lockout.
+const MAX_PAIR_ATTEMPTS: u32 = 5;
+/// Lockout duration after too many failed pairing attempts.
+const PAIR_LOCKOUT_SECS: u64 = 300; // 5 minutes
 
 /// Manages pairing state for the gateway.
 #[derive(Debug)]
@@ -20,6 +26,8 @@ pub struct PairingGuard {
     pairing_code: Option<String>,
     /// Set of valid bearer tokens (persisted across restarts).
     paired_tokens: Mutex<HashSet<String>>,
+    /// Brute-force protection: failed attempt counter + lockout time.
+    failed_attempts: Mutex<(u32, Option<Instant>)>,
 }
 
 impl PairingGuard {
@@ -38,6 +46,7 @@ impl PairingGuard {
             require_pairing,
             pairing_code: code,
             paired_tokens: Mutex::new(tokens),
+            failed_attempts: Mutex::new((0, None)),
         }
     }
 
@@ -52,19 +61,57 @@ impl PairingGuard {
     }
 
     /// Attempt to pair with the given code. Returns a bearer token on success.
-    pub fn try_pair(&self, code: &str) -> Option<String> {
+    /// Returns `Err(lockout_seconds)` if locked out due to brute force.
+    pub fn try_pair(&self, code: &str) -> Result<Option<String>, u64> {
+        // Check brute force lockout
+        {
+            let attempts = self
+                .failed_attempts
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let (count, Some(locked_at)) = &*attempts {
+                if *count >= MAX_PAIR_ATTEMPTS {
+                    let elapsed = locked_at.elapsed().as_secs();
+                    if elapsed < PAIR_LOCKOUT_SECS {
+                        return Err(PAIR_LOCKOUT_SECS - elapsed);
+                    }
+                }
+            }
+        }
+
         if let Some(ref expected) = self.pairing_code {
             if constant_time_eq(code.trim(), expected.trim()) {
+                // Reset failed attempts on success
+                {
+                    let mut attempts = self
+                        .failed_attempts
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    *attempts = (0, None);
+                }
                 let token = generate_token();
                 let mut tokens = self
                     .paired_tokens
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
                 tokens.insert(token.clone());
-                return Some(token);
+                return Ok(Some(token));
             }
         }
-        None
+
+        // Increment failed attempts
+        {
+            let mut attempts = self
+                .failed_attempts
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            attempts.0 += 1;
+            if attempts.0 >= MAX_PAIR_ATTEMPTS {
+                attempts.1 = Some(Instant::now());
+            }
+        }
+
+        Ok(None)
     }
 
     /// Check if a bearer token is valid.
@@ -117,7 +164,7 @@ fn generate_token() -> String {
 }
 
 /// Constant-time string comparison to prevent timing attacks on pairing code.
-fn constant_time_eq(a: &str, b: &str) -> bool {
+pub fn constant_time_eq(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
         return false;
     }
@@ -165,7 +212,7 @@ mod tests {
     fn try_pair_correct_code() {
         let guard = PairingGuard::new(true, &[]);
         let code = guard.pairing_code().unwrap().to_string();
-        let token = guard.try_pair(&code);
+        let token = guard.try_pair(&code).unwrap();
         assert!(token.is_some());
         assert!(token.unwrap().starts_with("zc_"));
         assert!(guard.is_paired());
@@ -174,16 +221,16 @@ mod tests {
     #[test]
     fn try_pair_wrong_code() {
         let guard = PairingGuard::new(true, &[]);
-        let token = guard.try_pair("000000");
+        let result = guard.try_pair("000000").unwrap();
         // Might succeed if code happens to be 000000, but extremely unlikely
-        // Just check it doesn't panic
-        let _ = token;
+        // Just check it returns Ok(None) normally
+        let _ = result;
     }
 
     #[test]
     fn try_pair_empty_code() {
         let guard = PairingGuard::new(true, &[]);
-        assert!(guard.try_pair("").is_none());
+        assert!(guard.try_pair("").unwrap().is_none());
     }
 
     #[test]
@@ -217,7 +264,7 @@ mod tests {
     fn pair_then_authenticate() {
         let guard = PairingGuard::new(true, &[]);
         let code = guard.pairing_code().unwrap().to_string();
-        let token = guard.try_pair(&code).unwrap();
+        let token = guard.try_pair(&code).unwrap().unwrap();
         assert!(guard.is_authenticated(&token));
         assert!(!guard.is_authenticated("wrong"));
     }
@@ -272,5 +319,56 @@ mod tests {
         let token = generate_token();
         assert!(token.starts_with("zc_"));
         assert!(token.len() > 10);
+    }
+
+    // ── Brute force protection ───────────────────────────────
+
+    #[test]
+    fn brute_force_lockout_after_max_attempts() {
+        let guard = PairingGuard::new(true, &[]);
+        // Exhaust all attempts with wrong codes
+        for i in 0..MAX_PAIR_ATTEMPTS {
+            let result = guard.try_pair(&format!("wrong_{i}"));
+            assert!(result.is_ok(), "Attempt {i} should not be locked out yet");
+        }
+        // Next attempt should be locked out
+        let result = guard.try_pair("another_wrong");
+        assert!(
+            result.is_err(),
+            "Should be locked out after {MAX_PAIR_ATTEMPTS} attempts"
+        );
+        let lockout_secs = result.unwrap_err();
+        assert!(lockout_secs > 0, "Lockout should have remaining seconds");
+        assert!(
+            lockout_secs <= PAIR_LOCKOUT_SECS,
+            "Lockout should not exceed max"
+        );
+    }
+
+    #[test]
+    fn correct_code_resets_failed_attempts() {
+        let guard = PairingGuard::new(true, &[]);
+        let code = guard.pairing_code().unwrap().to_string();
+        // Fail a few times
+        for _ in 0..3 {
+            let _ = guard.try_pair("wrong");
+        }
+        // Correct code should still work (under MAX_PAIR_ATTEMPTS)
+        let result = guard.try_pair(&code).unwrap();
+        assert!(result.is_some(), "Correct code should work before lockout");
+    }
+
+    #[test]
+    fn lockout_returns_remaining_seconds() {
+        let guard = PairingGuard::new(true, &[]);
+        for _ in 0..MAX_PAIR_ATTEMPTS {
+            let _ = guard.try_pair("wrong");
+        }
+        let err = guard.try_pair("wrong").unwrap_err();
+        // Should be close to PAIR_LOCKOUT_SECS (within a second)
+        assert!(
+            err >= PAIR_LOCKOUT_SECS - 1,
+            "Remaining lockout should be ~{PAIR_LOCKOUT_SECS}s, got {err}s"
+        );
     }
 }

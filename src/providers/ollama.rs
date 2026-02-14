@@ -44,7 +44,11 @@ impl OllamaProvider {
                 .unwrap_or("http://localhost:11434")
                 .trim_end_matches('/')
                 .to_string(),
-            client: Client::new(),
+            client: Client::builder()
+                .timeout(std::time::Duration::from_secs(300)) // Ollama runs locally, may be slow
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .build()
+                .unwrap_or_else(|_| Client::new()),
         }
     }
 }

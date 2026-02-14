@@ -3,6 +3,12 @@ use crate::security::SecurityPolicy;
 use async_trait::async_trait;
 use serde_json::json;
 use std::sync::Arc;
+use std::time::Duration;
+
+/// Maximum shell command execution time before kill.
+const SHELL_TIMEOUT_SECS: u64 = 60;
+/// Maximum output size in bytes (1MB).
+const MAX_OUTPUT_BYTES: usize = 1_048_576;
 
 /// Shell command execution tool with sandboxing
 pub struct ShellTool {
@@ -53,25 +59,55 @@ impl Tool for ShellTool {
             });
         }
 
-        let output = tokio::process::Command::new("sh")
-            .arg("-c")
-            .arg(command)
-            .current_dir(&self.security.workspace_dir)
-            .output()
-            .await?;
+        // Execute with timeout to prevent hanging commands
+        let result = tokio::time::timeout(
+            Duration::from_secs(SHELL_TIMEOUT_SECS),
+            tokio::process::Command::new("sh")
+                .arg("-c")
+                .arg(command)
+                .current_dir(&self.security.workspace_dir)
+                .output(),
+        )
+        .await;
 
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        match result {
+            Ok(Ok(output)) => {
+                let mut stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                let mut stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
-        Ok(ToolResult {
-            success: output.status.success(),
-            output: stdout,
-            error: if stderr.is_empty() {
-                None
-            } else {
-                Some(stderr)
-            },
-        })
+                // Truncate output to prevent OOM
+                if stdout.len() > MAX_OUTPUT_BYTES {
+                    stdout.truncate(MAX_OUTPUT_BYTES);
+                    stdout.push_str("\n... [output truncated at 1MB]");
+                }
+                if stderr.len() > MAX_OUTPUT_BYTES {
+                    stderr.truncate(MAX_OUTPUT_BYTES);
+                    stderr.push_str("\n... [stderr truncated at 1MB]");
+                }
+
+                Ok(ToolResult {
+                    success: output.status.success(),
+                    output: stdout,
+                    error: if stderr.is_empty() {
+                        None
+                    } else {
+                        Some(stderr)
+                    },
+                })
+            }
+            Ok(Err(e)) => Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!("Failed to execute command: {e}")),
+            }),
+            Err(_) => Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!(
+                    "Command timed out after {SHELL_TIMEOUT_SECS}s and was killed"
+                )),
+            }),
+        }
     }
 }
 
