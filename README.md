@@ -141,8 +141,8 @@ require_pairing = true          # require pairing code on first connect
 allow_public_bind = false       # refuse 0.0.0.0 without tunnel
 
 [autonomy]
-level = "supervised"            # "readonly", "supervised", "full"
-workspace_only = true
+level = "supervised"            # "readonly", "supervised", "full" (default: supervised)
+workspace_only = true           # default: true — scoped to workspace
 allowed_commands = ["git", "npm", "cargo", "ls", "cat", "grep"]
 forbidden_paths = ["/etc", "/root", "/proc", "/sys", "~/.ssh", "~/.gnupg", "~/.aws"]
 

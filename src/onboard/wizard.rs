@@ -3,7 +3,6 @@ use crate::config::{
     IMessageConfig, MatrixConfig, MemoryConfig, ObservabilityConfig, RuntimeConfig, SecretsConfig,
     SlackConfig, TelegramConfig, WebhookConfig,
 };
-use crate::security::AutonomyLevel;
 use anyhow::{Context, Result};
 use console::style;
 use dialoguer::{Confirm, Input, Select};
@@ -77,7 +76,7 @@ pub fn run_wizard() -> Result<Config> {
     scaffold_workspace(&workspace_dir, &project_ctx)?;
 
     // ── Build config ──
-    // Defaults: SQLite memory, full autonomy, full computer access, native runtime
+    // Defaults: SQLite memory, supervised autonomy, workspace-scoped, native runtime
     let config = Config {
         workspace_dir: workspace_dir.clone(),
         config_path: config_path.clone(),
@@ -90,11 +89,7 @@ pub fn run_wizard() -> Result<Config> {
         default_model: Some(model),
         default_temperature: 0.7,
         observability: ObservabilityConfig::default(),
-        autonomy: AutonomyConfig {
-            level: AutonomyLevel::Full,
-            workspace_only: false,
-            ..AutonomyConfig::default()
-        },
+        autonomy: AutonomyConfig::default(),
         runtime: RuntimeConfig::default(),
         heartbeat: HeartbeatConfig::default(),
         channels_config,
@@ -106,9 +101,9 @@ pub fn run_wizard() -> Result<Config> {
     };
 
     println!(
-        "  {} Security: {} | Full computer access",
+        "  {} Security: {} | workspace-scoped",
         style("✓").green().bold(),
-        style("Full Autonomy").green()
+        style("Supervised").green()
     );
     println!(
         "  {} Memory: {} (auto-save: on)",
@@ -188,11 +183,7 @@ pub fn run_quick_setup(api_key: Option<&str>, provider: Option<&str>) -> Result<
         default_model: Some(model.clone()),
         default_temperature: 0.7,
         observability: ObservabilityConfig::default(),
-        autonomy: AutonomyConfig {
-            level: AutonomyLevel::Full,
-            workspace_only: false,
-            ..AutonomyConfig::default()
-        },
+        autonomy: AutonomyConfig::default(),
         runtime: RuntimeConfig::default(),
         heartbeat: HeartbeatConfig::default(),
         channels_config: ChannelsConfig::default(),
@@ -241,7 +232,7 @@ pub fn run_quick_setup(api_key: Option<&str>, provider: Option<&str>) -> Result<
     println!(
         "  {} Security:   {}",
         style("✓").green().bold(),
-        style("Full Autonomy").green()
+        style("Supervised (workspace-scoped)").green()
     );
     println!(
         "  {} Memory:     {}",
@@ -253,6 +244,21 @@ pub fn run_quick_setup(api_key: Option<&str>, provider: Option<&str>) -> Result<
         style("✓").green().bold(),
         style("encrypted").green()
     );
+    println!(
+        "  {} Gateway:    {}",
+        style("✓").green().bold(),
+        style("pairing required (127.0.0.1:8080)").green()
+    );
+    println!(
+        "  {} Tunnel:     {}",
+        style("✓").green().bold(),
+        style("none (local only)").dim()
+    );
+    println!(
+        "  {} Composio:   {}",
+        style("✓").green().bold(),
+        style("disabled (sovereign mode)").dim()
+    );
     println!();
     println!(
         "  {} {}",
@@ -260,13 +266,16 @@ pub fn run_quick_setup(api_key: Option<&str>, provider: Option<&str>) -> Result<
         style(config_path.display()).green()
     );
     println!();
-    println!("  Next steps:");
+    println!("  {}", style("Next steps:").white().bold());
     if api_key.is_none() {
         println!("    1. Set your API key:  export OPENROUTER_API_KEY=\"sk-...\"");
         println!("    2. Or edit:           ~/.zeroclaw/config.toml");
-        println!("    3. Run:               zeroclaw agent -m \"Hello!\"");
+        println!("    3. Chat:              zeroclaw agent -m \"Hello!\"");
+        println!("    4. Gateway:           zeroclaw gateway");
     } else {
-        println!("    Run:  zeroclaw agent -m \"Hello!\"");
+        println!("    1. Chat:     zeroclaw agent -m \"Hello!\"");
+        println!("    2. Gateway:  zeroclaw gateway");
+        println!("    3. Status:   zeroclaw status --verbose");
     }
     println!();
 
@@ -1825,6 +1834,50 @@ fn print_summary(config: &Config) {
             style("not set (set via env var or config)")
                 .yellow()
                 .to_string()
+        }
+    );
+
+    // Tunnel
+    println!(
+        "    {} Tunnel:        {}",
+        style("🌐").cyan(),
+        if config.tunnel.provider == "none" || config.tunnel.provider.is_empty() {
+            "none (local only)".to_string()
+        } else {
+            config.tunnel.provider.clone()
+        }
+    );
+
+    // Composio
+    println!(
+        "    {} Composio:      {}",
+        style("🔗").cyan(),
+        if config.composio.enabled {
+            style("enabled (1000+ OAuth apps)").green().to_string()
+        } else {
+            "disabled (sovereign mode)".to_string()
+        }
+    );
+
+    // Secrets
+    println!(
+        "    {} Secrets:       {}",
+        style("🔒").cyan(),
+        if config.secrets.encrypt {
+            style("encrypted").green().to_string()
+        } else {
+            style("plaintext").yellow().to_string()
+        }
+    );
+
+    // Gateway
+    println!(
+        "    {} Gateway:       {}",
+        style("🚪").cyan(),
+        if config.gateway.require_pairing {
+            "pairing required (secure)"
+        } else {
+            "pairing disabled"
         }
     );
 

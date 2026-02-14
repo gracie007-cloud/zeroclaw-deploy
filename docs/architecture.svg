@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 920" font-family="'Segoe UI', system-ui, -apple-system, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 950" font-family="'Segoe UI', system-ui, -apple-system, sans-serif">
   <defs>
     <filter id="shadow" x="-4%" y="-4%" width="108%" height="108%">
       <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.15"/>
@@ -24,11 +24,11 @@
   </defs>
 
   <!-- Background -->
-  <rect width="1100" height="920" rx="12" fill="url(#bgGrad)"/>
+  <rect width="1100" height="950" rx="12" fill="url(#bgGrad)"/>
 
   <!-- Title -->
   <text x="550" y="38" text-anchor="middle" fill="#e6edf3" font-size="22" font-weight="700">ZeroClaw Architecture</text>
-  <text x="550" y="58" text-anchor="middle" fill="#7d8590" font-size="12">Zero overhead. Zero compromise. 100% Rust. 100% Agnostic.</text>
+  <text x="550" y="58" text-anchor="middle" fill="#7d8590" font-size="12">Zero overhead. Zero compromise. 100% Rust. 100% Agnostic. 8 pluggable traits.</text>
 
   <!-- ═══════════ LEFT: Chat Apps ═══════════ -->
   <rect x="20" y="80" width="150" height="310" rx="10" fill="#1c2333" stroke="#3b82f6" stroke-width="1.5" filter="url(#shadow)"/>
@@ -240,8 +240,8 @@
   <text x="695" y="652" text-anchor="middle" fill="#ef4444" font-size="9">Null byte injection blocked</text>
   <text x="695" y="669" text-anchor="middle" fill="#ef4444" font-size="9">Symlink escape detection</text>
   <text x="695" y="686" text-anchor="middle" fill="#ef4444" font-size="9">14 system dirs + 4 dotfiles blocked</text>
-  <text x="695" y="706" text-anchor="middle" fill="#ef4444" font-size="9">Autonomy: ReadOnly / Supervised / Full</text>
-  <text x="695" y="726" text-anchor="middle" fill="#ef4444" font-size="9">Workspace-only mode (default)</text>
+  <text x="695" y="706" text-anchor="middle" fill="#ef4444" font-size="9">Default: Supervised + workspace-only</text>
+  <text x="695" y="726" text-anchor="middle" fill="#ef4444" font-size="9">Levels: ReadOnly / Supervised / Full</text>
 
   <!-- Arrow: Agent → Sandbox -->
   <line x1="695" y1="550" x2="695" y2="570" stroke="#ef4444" stroke-width="2"/>
@@ -259,9 +259,9 @@
   <line x1="960" y1="550" x2="960" y2="570" stroke="#06b6d4" stroke-width="2"/>
 
   <!-- ═══════════ BOTTOM: Setup Wizard ═══════════ -->
-  <rect x="20" y="760" width="1060" height="140" rx="10" fill="#1c2333" stroke="#f472b6" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="20" y="760" width="1060" height="170" rx="10" fill="#1c2333" stroke="#f472b6" stroke-width="1.5" filter="url(#shadow)"/>
   <text x="550" y="785" text-anchor="middle" fill="#f9a8d4" font-size="14" font-weight="700">Setup Wizard  --  zeroclaw onboard (--quick for instant setup)</text>
-  <text x="550" y="802" text-anchor="middle" fill="#7d8590" font-size="10">7 steps, under 60 seconds</text>
+  <text x="550" y="802" text-anchor="middle" fill="#7d8590" font-size="10">7 steps, under 60 seconds | Live connection testing | Secure defaults</text>
 
   <!-- Wizard steps: 7 -->
   <rect x="30" y="815" width="130" height="38" rx="8" fill="#2d1f3d" stroke="#c084fc" stroke-width="1"/>
@@ -274,7 +274,7 @@
 
   <rect x="310" y="815" width="130" height="38" rx="8" fill="#2d1f3d" stroke="#c084fc" stroke-width="1"/>
   <text x="375" y="831" text-anchor="middle" fill="#e9d5ff" font-size="8" font-weight="600">3. Channels</text>
-  <text x="375" y="845" text-anchor="middle" fill="#a78bfa" font-size="7">7 channels + test</text>
+  <text x="375" y="845" text-anchor="middle" fill="#a78bfa" font-size="7">7 channels + live test</text>
 
   <rect x="450" y="815" width="130" height="38" rx="8" fill="#2d1f3d" stroke="#c084fc" stroke-width="1"/>
   <text x="515" y="831" text-anchor="middle" fill="#e9d5ff" font-size="8" font-weight="600">4. Tunnel</text>
@@ -290,7 +290,7 @@
 
   <rect x="870" y="815" width="130" height="38" rx="8" fill="#2d1f3d" stroke="#c084fc" stroke-width="1"/>
   <text x="935" y="831" text-anchor="middle" fill="#e9d5ff" font-size="8" font-weight="600">7. Scaffold</text>
-  <text x="935" y="845" text-anchor="middle" fill="#a78bfa" font-size="7">workspace MD files</text>
+  <text x="935" y="845" text-anchor="middle" fill="#a78bfa" font-size="7">8 workspace MD files</text>
 
   <!-- Step arrows -->
   <line x1="160" y1="834" x2="170" y2="834" stroke="#c084fc" stroke-width="1" marker-end="url(#arrowPurple)"/>
@@ -300,10 +300,13 @@
   <line x1="720" y1="834" x2="730" y2="834" stroke="#c084fc" stroke-width="1" marker-end="url(#arrowPurple)"/>
   <line x1="860" y1="834" x2="870" y2="834" stroke="#c084fc" stroke-width="1" marker-end="url(#arrowPurple)"/>
 
+  <!-- Wizard output summary -->
+  <text x="550" y="872" text-anchor="middle" fill="#7d8590" font-size="9">Full summary: Provider, Model, Channels, Tunnel, Composio, Secrets, Gateway, Autonomy, Memory</text>
+
   <!-- Ready badge -->
-  <rect x="380" y="862" width="340" height="28" rx="14" fill="#166534" stroke="#4ade80" stroke-width="1"/>
-  <text x="550" y="881" text-anchor="middle" fill="#4ade80" font-size="12" font-weight="600">Ready -- zeroclaw agent</text>
+  <rect x="380" y="888" width="340" height="28" rx="14" fill="#166534" stroke="#4ade80" stroke-width="1"/>
+  <text x="550" y="907" text-anchor="middle" fill="#4ade80" font-size="12" font-weight="600">Ready -- zeroclaw agent</text>
 
   <!-- Footer stats -->
-  <text x="550" y="912" text-anchor="middle" fill="#7d8590" font-size="10">~3.4MB binary  |  &lt;10ms startup  |  1,017 tests  |  22+ providers  |  7 channels  |  5 tunnels  |  Encrypted secrets  |  Pluggable everything</text>
+  <text x="550" y="942" text-anchor="middle" fill="#7d8590" font-size="10">~3.4MB binary  |  &lt;10ms startup  |  1,017 tests  |  22+ providers  |  8 traits  |  17,800+ lines of Rust  |  0 clippy warnings</text>
 </svg>
