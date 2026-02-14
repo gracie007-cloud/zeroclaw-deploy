@@ -69,76 +69,8 @@ pub struct IntegrationEntry {
 /// Handle the `integrations` CLI command
 pub fn handle_command(command: super::IntegrationCommands, config: &Config) -> Result<()> {
     match command {
-        super::IntegrationCommands::List { category } => {
-            list_integrations(config, category.as_deref())
-        }
         super::IntegrationCommands::Info { name } => show_integration_info(config, &name),
     }
-}
-
-#[allow(clippy::unnecessary_wraps)]
-fn list_integrations(config: &Config, filter_category: Option<&str>) -> Result<()> {
-    let entries = registry::all_integrations();
-
-    let mut available = 0u32;
-    let mut active = 0u32;
-    let mut coming = 0u32;
-
-    for &cat in IntegrationCategory::all() {
-        // Filter by category if specified
-        if let Some(filter) = filter_category {
-            let filter_lower = filter.to_lowercase();
-            let cat_lower = cat.label().to_lowercase();
-            if !cat_lower.contains(&filter_lower) {
-                continue;
-            }
-        }
-
-        let cat_entries: Vec<&IntegrationEntry> =
-            entries.iter().filter(|e| e.category == cat).collect();
-
-        if cat_entries.is_empty() {
-            continue;
-        }
-
-        println!("\n  ⟩ {}", console::style(cat.label()).white().bold());
-
-        for entry in &cat_entries {
-            let status = (entry.status_fn)(config);
-            let (icon, label) = match status {
-                IntegrationStatus::Active => {
-                    active += 1;
-                    ("✅", console::style("active").green())
-                }
-                IntegrationStatus::Available => {
-                    available += 1;
-                    ("⚪", console::style("available").dim())
-                }
-                IntegrationStatus::ComingSoon => {
-                    coming += 1;
-                    ("🔜", console::style("coming soon").dim())
-                }
-            };
-            println!(
-                "    {icon} {:<22} {:<30} {}",
-                console::style(entry.name).white().bold(),
-                entry.description,
-                label
-            );
-        }
-    }
-
-    let total = available + active + coming;
-    println!();
-    println!(
-        "  {total} integrations: {active} active, {available} available, {coming} coming soon"
-    );
-    println!();
-    println!("  Configure: zeroclaw onboard");
-    println!("  Details:   zeroclaw integrations info <name>");
-    println!();
-
-    Ok(())
 }
 
 fn show_integration_info(config: &Config, name: &str) -> Result<()> {
@@ -146,7 +78,9 @@ fn show_integration_info(config: &Config, name: &str) -> Result<()> {
     let name_lower = name.to_lowercase();
 
     let Some(entry) = entries.iter().find(|e| e.name.to_lowercase() == name_lower) else {
-        anyhow::bail!("Unknown integration: {name}. Run `zeroclaw integrations list` to see all.");
+        anyhow::bail!(
+            "Unknown integration: {name}. Check README for supported integrations or run `zeroclaw onboard --interactive` to configure channels/providers."
+        );
     };
 
     let status = (entry.status_fn)(config);

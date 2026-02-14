@@ -1,7 +1,7 @@
 use crate::config::{
-    AutonomyConfig, ChannelsConfig, ComposioConfig, Config, DiscordConfig, HeartbeatConfig,
-    IMessageConfig, MatrixConfig, MemoryConfig, ObservabilityConfig, RuntimeConfig, SecretsConfig,
-    SlackConfig, TelegramConfig, WebhookConfig,
+    AutonomyConfig, BrowserConfig, ChannelsConfig, ComposioConfig, Config, DiscordConfig,
+    HeartbeatConfig, IMessageConfig, MatrixConfig, MemoryConfig, ObservabilityConfig,
+    RuntimeConfig, SecretsConfig, SlackConfig, TelegramConfig, WebhookConfig,
 };
 use anyhow::{Context, Result};
 use console::style;
@@ -98,6 +98,7 @@ pub fn run_wizard() -> Result<Config> {
         gateway: crate::config::GatewayConfig::default(),
         composio: composio_config,
         secrets: secrets_config,
+        browser: BrowserConfig::default(),
     };
 
     println!(
@@ -151,7 +152,8 @@ pub fn run_wizard() -> Result<Config> {
 // ── Quick setup (zero prompts) ───────────────────────────────────
 
 /// Non-interactive setup: generates a sensible default config instantly.
-/// Use `zeroclaw onboard --quick` or `zeroclaw onboard --quick --api-key sk-... --provider openrouter`
+/// Use `zeroclaw onboard` or `zeroclaw onboard --api-key sk-... --provider openrouter`.
+/// Use `zeroclaw onboard --interactive` for the full wizard.
 #[allow(clippy::too_many_lines)]
 pub fn run_quick_setup(api_key: Option<&str>, provider: Option<&str>) -> Result<Config> {
     println!("{}", style(BANNER).cyan().bold());
@@ -192,6 +194,7 @@ pub fn run_quick_setup(api_key: Option<&str>, provider: Option<&str>) -> Result<
         gateway: crate::config::GatewayConfig::default(),
         composio: ComposioConfig::default(),
         secrets: SecretsConfig::default(),
+        browser: BrowserConfig::default(),
     };
 
     config.save()?;
@@ -275,7 +278,7 @@ pub fn run_quick_setup(api_key: Option<&str>, provider: Option<&str>) -> Result<
     } else {
         println!("    1. Chat:     zeroclaw agent -m \"Hello!\"");
         println!("    2. Gateway:  zeroclaw gateway");
-        println!("    3. Status:   zeroclaw status --verbose");
+        println!("    3. Status:   zeroclaw status");
     }
     println!();
 
@@ -1054,10 +1057,34 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     .allow_empty(true)
                     .interact_text()?;
 
+                let allowed_users_str: String = Input::new()
+                    .with_prompt(
+                        "  Allowed Discord user IDs (comma-separated, '*' for all, Enter to deny all)",
+                    )
+                    .allow_empty(true)
+                    .interact_text()?;
+
+                let allowed_users = if allowed_users_str.trim().is_empty() {
+                    vec![]
+                } else {
+                    allowed_users_str
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                };
+
+                if allowed_users.is_empty() {
+                    println!(
+                        "  {} No users allowlisted — Discord inbound messages will be denied until you add IDs or '*'.",
+                        style("⚠").yellow().bold()
+                    );
+                }
+
                 config.discord = Some(DiscordConfig {
                     bot_token: token,
                     guild_id: if guild.is_empty() { None } else { Some(guild) },
-                    allowed_users: vec![],
+                    allowed_users,
                 });
             }
             2 => {
@@ -1133,6 +1160,30 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     .allow_empty(true)
                     .interact_text()?;
 
+                let allowed_users_str: String = Input::new()
+                    .with_prompt(
+                        "  Allowed Slack user IDs (comma-separated, '*' for all, Enter to deny all)",
+                    )
+                    .allow_empty(true)
+                    .interact_text()?;
+
+                let allowed_users = if allowed_users_str.trim().is_empty() {
+                    vec![]
+                } else {
+                    allowed_users_str
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                };
+
+                if allowed_users.is_empty() {
+                    println!(
+                        "  {} No users allowlisted — Slack inbound messages will be denied until you add IDs or '*'.",
+                        style("⚠").yellow().bold()
+                    );
+                }
+
                 config.slack = Some(SlackConfig {
                     bot_token: token,
                     app_token: if app_token.is_empty() {
@@ -1145,7 +1196,7 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     } else {
                         Some(channel)
                     },
-                    allowed_users: vec![],
+                    allowed_users,
                 });
             }
             3 => {
@@ -1936,7 +1987,7 @@ fn print_summary(config: &Config) {
         "    {} Check full status:",
         style(format!("{step}.")).cyan().bold()
     );
-    println!("       {}", style("zeroclaw status --verbose").yellow());
+    println!("       {}", style("zeroclaw status").yellow());
 
     println!();
     println!(

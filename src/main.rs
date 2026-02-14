@@ -47,15 +47,15 @@ struct Cli {
 enum Commands {
     /// Initialize your workspace and configuration
     Onboard {
-        /// Skip interactive prompts — generate config with sensible defaults
+        /// Run the full interactive wizard (default is quick setup)
         #[arg(long)]
-        quick: bool,
+        interactive: bool,
 
-        /// API key (used with --quick)
+        /// API key (used in quick mode, ignored with --interactive)
         #[arg(long)]
         api_key: Option<String>,
 
-        /// Provider name (used with --quick, default: openrouter)
+        /// Provider name (used in quick mode, default: openrouter)
         #[arg(long)]
         provider: Option<String>,
     },
@@ -90,12 +90,8 @@ enum Commands {
         host: String,
     },
 
-    /// Show system status
-    Status {
-        /// Show detailed status
-        #[arg(short, long)]
-        verbose: bool,
-    },
+    /// Show system status (full details)
+    Status,
 
     /// Configure and manage scheduled tasks
     Cron {
@@ -107,12 +103,6 @@ enum Commands {
     Channel {
         #[command(subcommand)]
         channel_command: ChannelCommands,
-    },
-
-    /// Tool utilities
-    Tools {
-        #[command(subcommand)]
-        tool_command: ToolCommands,
     },
 
     /// Browse 50+ integrations
@@ -152,6 +142,8 @@ enum ChannelCommands {
     List,
     /// Start all configured channels (Telegram, Discord, Slack)
     Start,
+    /// Run health checks for configured channels
+    Doctor,
     /// Add a new channel
     Add {
         /// Channel type
@@ -184,29 +176,10 @@ enum SkillCommands {
 
 #[derive(Subcommand, Debug)]
 enum IntegrationCommands {
-    /// List all integrations and their status
-    List {
-        /// Filter by category (e.g. "chat", "ai", "productivity")
-        #[arg(short, long)]
-        category: Option<String>,
-    },
     /// Show details about a specific integration
     Info {
         /// Integration name
         name: String,
-    },
-}
-
-#[derive(Subcommand, Debug)]
-enum ToolCommands {
-    /// List available tools
-    List,
-    /// Test a tool
-    Test {
-        /// Tool name
-        tool: String,
-        /// Tool arguments (JSON)
-        args: String,
     },
 }
 
@@ -222,17 +195,17 @@ async fn main() -> Result<()> {
 
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
-    // Onboard runs the wizard or quick setup — no existing config needed
+    // Onboard runs quick setup by default, or the interactive wizard with --interactive
     if let Commands::Onboard {
-        quick,
+        interactive,
         api_key,
         provider,
     } = &cli.command
     {
-        let config = if *quick {
-            onboard::run_quick_setup(api_key.as_deref(), provider.as_deref())?
-        } else {
+        let config = if *interactive {
             onboard::run_wizard()?
+        } else {
+            onboard::run_quick_setup(api_key.as_deref(), provider.as_deref())?
         };
         // Auto-start channels if user said yes during wizard
         if std::env::var("ZEROCLAW_AUTOSTART_CHANNELS").as_deref() == Ok("1") {
@@ -263,7 +236,7 @@ async fn main() -> Result<()> {
             gateway::run_gateway(&host, port, config).await
         }
 
-        Commands::Status { verbose } => {
+        Commands::Status => {
             println!("🦀 ZeroClaw Status");
             println!();
             println!("Version:     {}", env!("CARGO_PKG_VERSION"));
@@ -295,40 +268,38 @@ async fn main() -> Result<()> {
                 if config.memory.auto_save { "on" } else { "off" }
             );
 
-            if verbose {
-                println!();
-                println!("Security:");
-                println!("  Workspace only:    {}", config.autonomy.workspace_only);
+            println!();
+            println!("Security:");
+            println!("  Workspace only:    {}", config.autonomy.workspace_only);
+            println!(
+                "  Allowed commands:  {}",
+                config.autonomy.allowed_commands.join(", ")
+            );
+            println!(
+                "  Max actions/hour:  {}",
+                config.autonomy.max_actions_per_hour
+            );
+            println!(
+                "  Max cost/day:      ${:.2}",
+                f64::from(config.autonomy.max_cost_per_day_cents) / 100.0
+            );
+            println!();
+            println!("Channels:");
+            println!("  CLI:      ✅ always");
+            for (name, configured) in [
+                ("Telegram", config.channels_config.telegram.is_some()),
+                ("Discord", config.channels_config.discord.is_some()),
+                ("Slack", config.channels_config.slack.is_some()),
+                ("Webhook", config.channels_config.webhook.is_some()),
+            ] {
                 println!(
-                    "  Allowed commands:  {}",
-                    config.autonomy.allowed_commands.join(", ")
+                    "  {name:9} {}",
+                    if configured {
+                        "✅ configured"
+                    } else {
+                        "❌ not configured"
+                    }
                 );
-                println!(
-                    "  Max actions/hour:  {}",
-                    config.autonomy.max_actions_per_hour
-                );
-                println!(
-                    "  Max cost/day:      ${:.2}",
-                    f64::from(config.autonomy.max_cost_per_day_cents) / 100.0
-                );
-                println!();
-                println!("Channels:");
-                println!("  CLI:      ✅ always");
-                for (name, configured) in [
-                    ("Telegram", config.channels_config.telegram.is_some()),
-                    ("Discord", config.channels_config.discord.is_some()),
-                    ("Slack", config.channels_config.slack.is_some()),
-                    ("Webhook", config.channels_config.webhook.is_some()),
-                ] {
-                    println!(
-                        "  {name:9} {}",
-                        if configured {
-                            "✅ configured"
-                        } else {
-                            "❌ not configured"
-                        }
-                    );
-                }
             }
 
             Ok(())
@@ -338,10 +309,9 @@ async fn main() -> Result<()> {
 
         Commands::Channel { channel_command } => match channel_command {
             ChannelCommands::Start => channels::start_channels(config).await,
+            ChannelCommands::Doctor => channels::doctor_channels(config).await,
             other => channels::handle_command(other, &config),
         },
-
-        Commands::Tools { tool_command } => tools::handle_command(tool_command, config).await,
 
         Commands::Integrations {
             integration_command,

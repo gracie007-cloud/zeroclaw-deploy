@@ -19,6 +19,7 @@ use crate::memory::{self, Memory};
 use crate::providers::{self, Provider};
 use anyhow::Result;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// Maximum characters per injected workspace file (matches `OpenClaw` default).
 const BOOTSTRAP_MAX_CHARS: usize = 20_000;
@@ -181,6 +182,10 @@ pub fn handle_command(command: super::ChannelCommands, config: &Config) -> Resul
             // Handled in main.rs (needs async), this is unreachable
             unreachable!("Start is handled in main.rs")
         }
+        super::ChannelCommands::Doctor => {
+            // Handled in main.rs (needs async), this is unreachable
+            unreachable!("Doctor is handled in main.rs")
+        }
         super::ChannelCommands::List => {
             println!("Channels:");
             println!("  ✅ CLI (always available)");
@@ -195,6 +200,7 @@ pub fn handle_command(command: super::ChannelCommands, config: &Config) -> Resul
                 println!("  {} {name}", if configured { "✅" } else { "❌" });
             }
             println!("\nTo start channels: zeroclaw channel start");
+            println!("To check health:    zeroclaw channel doctor");
             println!("To configure:      zeroclaw onboard");
             Ok(())
         }
@@ -210,6 +216,119 @@ pub fn handle_command(command: super::ChannelCommands, config: &Config) -> Resul
             anyhow::bail!("Remove channel '{name}' — edit ~/.zeroclaw/config.toml directly");
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChannelHealthState {
+    Healthy,
+    Unhealthy,
+    Timeout,
+}
+
+fn classify_health_result(
+    result: &std::result::Result<bool, tokio::time::error::Elapsed>,
+) -> ChannelHealthState {
+    match result {
+        Ok(true) => ChannelHealthState::Healthy,
+        Ok(false) => ChannelHealthState::Unhealthy,
+        Err(_) => ChannelHealthState::Timeout,
+    }
+}
+
+/// Run health checks for configured channels.
+pub async fn doctor_channels(config: Config) -> Result<()> {
+    let mut channels: Vec<(&'static str, Arc<dyn Channel>)> = Vec::new();
+
+    if let Some(ref tg) = config.channels_config.telegram {
+        channels.push((
+            "Telegram",
+            Arc::new(TelegramChannel::new(
+                tg.bot_token.clone(),
+                tg.allowed_users.clone(),
+            )),
+        ));
+    }
+
+    if let Some(ref dc) = config.channels_config.discord {
+        channels.push((
+            "Discord",
+            Arc::new(DiscordChannel::new(
+                dc.bot_token.clone(),
+                dc.guild_id.clone(),
+                dc.allowed_users.clone(),
+            )),
+        ));
+    }
+
+    if let Some(ref sl) = config.channels_config.slack {
+        channels.push((
+            "Slack",
+            Arc::new(SlackChannel::new(
+                sl.bot_token.clone(),
+                sl.channel_id.clone(),
+                sl.allowed_users.clone(),
+            )),
+        ));
+    }
+
+    if let Some(ref im) = config.channels_config.imessage {
+        channels.push((
+            "iMessage",
+            Arc::new(IMessageChannel::new(im.allowed_contacts.clone())),
+        ));
+    }
+
+    if let Some(ref mx) = config.channels_config.matrix {
+        channels.push((
+            "Matrix",
+            Arc::new(MatrixChannel::new(
+                mx.homeserver.clone(),
+                mx.access_token.clone(),
+                mx.room_id.clone(),
+                mx.allowed_users.clone(),
+            )),
+        ));
+    }
+
+    if channels.is_empty() {
+        println!("No real-time channels configured. Run `zeroclaw onboard` first.");
+        return Ok(());
+    }
+
+    println!("🩺 ZeroClaw Channel Doctor");
+    println!();
+
+    let mut healthy = 0_u32;
+    let mut unhealthy = 0_u32;
+    let mut timeout = 0_u32;
+
+    for (name, channel) in channels {
+        let result = tokio::time::timeout(Duration::from_secs(10), channel.health_check()).await;
+        let state = classify_health_result(&result);
+
+        match state {
+            ChannelHealthState::Healthy => {
+                healthy += 1;
+                println!("  ✅ {name:<9} healthy");
+            }
+            ChannelHealthState::Unhealthy => {
+                unhealthy += 1;
+                println!("  ❌ {name:<9} unhealthy (auth/config/network)");
+            }
+            ChannelHealthState::Timeout => {
+                timeout += 1;
+                println!("  ⏱️  {name:<9} timed out (>10s)");
+            }
+        }
+    }
+
+    if config.channels_config.webhook.is_some() {
+        println!("  ℹ️  Webhook   check via `zeroclaw gateway` then GET /health");
+    }
+
+    println!();
+    println!("Summary: {healthy} healthy, {unhealthy} unhealthy, {timeout} timed out");
+    Ok(())
 }
 
 /// Start all configured channels and route messages to the agent
@@ -235,7 +354,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
     let skills = crate::skills::load_skills(&workspace);
 
     // Collect tool descriptions for the prompt
-    let tool_descs: Vec<(&str, &str)> = vec![
+    let mut tool_descs: Vec<(&str, &str)> = vec![
         ("shell", "Execute terminal commands"),
         ("file_read", "Read file contents"),
         ("file_write", "Write file contents"),
@@ -243,6 +362,13 @@ pub async fn start_channels(config: Config) -> Result<()> {
         ("memory_recall", "Search memory"),
         ("memory_forget", "Delete a memory entry"),
     ];
+
+    if config.browser.enabled {
+        tool_descs.push((
+            "browser_open",
+            "Open approved HTTPS URLs in Brave Browser (allowlist-only, no scraping)",
+        ));
+    }
 
     let system_prompt = build_system_prompt(&workspace, &model, &tool_descs, &skills);
 
@@ -627,5 +753,28 @@ mod tests {
         let prompt = build_system_prompt(ws.path(), "model", &[], &[]);
 
         assert!(prompt.contains(&format!("Working directory: `{}`", ws.path().display())));
+    }
+
+    #[test]
+    fn classify_health_ok_true() {
+        let state = classify_health_result(&Ok(true));
+        assert_eq!(state, ChannelHealthState::Healthy);
+    }
+
+    #[test]
+    fn classify_health_ok_false() {
+        let state = classify_health_result(&Ok(false));
+        assert_eq!(state, ChannelHealthState::Unhealthy);
+    }
+
+    #[tokio::test]
+    async fn classify_health_timeout() {
+        let result = tokio::time::timeout(Duration::from_millis(1), async {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            true
+        })
+        .await;
+        let state = classify_health_result(&result);
+        assert_eq!(state, ChannelHealthState::Timeout);
     }
 }

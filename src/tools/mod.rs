@@ -1,3 +1,4 @@
+pub mod browser_open;
 pub mod composio;
 pub mod file_read;
 pub mod file_write;
@@ -7,6 +8,7 @@ pub mod memory_store;
 pub mod shell;
 pub mod traits;
 
+pub use browser_open::BrowserOpenTool;
 pub use composio::ComposioTool;
 pub use file_read::FileReadTool;
 pub use file_write::FileWriteTool;
@@ -18,10 +20,8 @@ pub use traits::Tool;
 #[allow(unused_imports)]
 pub use traits::{ToolResult, ToolSpec};
 
-use crate::config::Config;
 use crate::memory::Memory;
 use crate::security::SecurityPolicy;
-use anyhow::Result;
 use std::sync::Arc;
 
 /// Create the default tool registry
@@ -35,18 +35,26 @@ pub fn default_tools(security: Arc<SecurityPolicy>) -> Vec<Box<dyn Tool>> {
 
 /// Create full tool registry including memory tools and optional Composio
 pub fn all_tools(
-    security: Arc<SecurityPolicy>,
+    security: &Arc<SecurityPolicy>,
     memory: Arc<dyn Memory>,
     composio_key: Option<&str>,
+    browser_config: &crate::config::BrowserConfig,
 ) -> Vec<Box<dyn Tool>> {
     let mut tools: Vec<Box<dyn Tool>> = vec![
         Box::new(ShellTool::new(security.clone())),
         Box::new(FileReadTool::new(security.clone())),
-        Box::new(FileWriteTool::new(security)),
+        Box::new(FileWriteTool::new(security.clone())),
         Box::new(MemoryStoreTool::new(memory.clone())),
         Box::new(MemoryRecallTool::new(memory.clone())),
         Box::new(MemoryForgetTool::new(memory)),
     ];
+
+    if browser_config.enabled {
+        tools.push(Box::new(BrowserOpenTool::new(
+            security.clone(),
+            browser_config.allowed_domains.clone(),
+        )));
+    }
 
     if let Some(key) = composio_key {
         if !key.is_empty() {
@@ -57,59 +65,59 @@ pub fn all_tools(
     tools
 }
 
-pub async fn handle_command(command: super::ToolCommands, config: Config) -> Result<()> {
-    let security = Arc::new(SecurityPolicy {
-        workspace_dir: config.workspace_dir.clone(),
-        ..SecurityPolicy::default()
-    });
-    let mem: Arc<dyn Memory> = Arc::from(crate::memory::create_memory(
-        &config.memory,
-        &config.workspace_dir,
-        config.api_key.as_deref(),
-    )?);
-    let composio_key = if config.composio.enabled {
-        config.composio.api_key.as_deref()
-    } else {
-        None
-    };
-    let tools_list = all_tools(security, mem, composio_key);
-
-    match command {
-        super::ToolCommands::List => {
-            println!("Available tools ({}):", tools_list.len());
-            for tool in &tools_list {
-                println!("  - {}: {}", tool.name(), tool.description());
-            }
-            Ok(())
-        }
-        super::ToolCommands::Test { tool, args } => {
-            let matched = tools_list.iter().find(|t| t.name() == tool);
-            match matched {
-                Some(t) => {
-                    let parsed: serde_json::Value = serde_json::from_str(&args)?;
-                    let result = t.execute(parsed).await?;
-                    println!("Success: {}", result.success);
-                    println!("Output: {}", result.output);
-                    if let Some(err) = result.error {
-                        println!("Error: {err}");
-                    }
-                    Ok(())
-                }
-                None => anyhow::bail!("Unknown tool: {tool}"),
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{BrowserConfig, MemoryConfig};
+    use tempfile::TempDir;
 
     #[test]
     fn default_tools_has_three() {
         let security = Arc::new(SecurityPolicy::default());
         let tools = default_tools(security);
         assert_eq!(tools.len(), 3);
+    }
+
+    #[test]
+    fn all_tools_excludes_browser_when_disabled() {
+        let tmp = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy::default());
+        let mem_cfg = MemoryConfig {
+            backend: "markdown".into(),
+            ..MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> =
+            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+
+        let browser = BrowserConfig {
+            enabled: false,
+            allowed_domains: vec!["example.com".into()],
+        };
+
+        let tools = all_tools(&security, mem, None, &browser);
+        let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
+        assert!(!names.contains(&"browser_open"));
+    }
+
+    #[test]
+    fn all_tools_includes_browser_when_enabled() {
+        let tmp = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy::default());
+        let mem_cfg = MemoryConfig {
+            backend: "markdown".into(),
+            ..MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> =
+            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+
+        let browser = BrowserConfig {
+            enabled: true,
+            allowed_domains: vec!["example.com".into()],
+        };
+
+        let tools = all_tools(&security, mem, None, &browser);
+        let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
+        assert!(names.contains(&"browser_open"));
     }
 
     #[test]

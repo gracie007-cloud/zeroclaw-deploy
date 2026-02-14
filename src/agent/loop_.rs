@@ -59,7 +59,7 @@ pub async fn run(
     } else {
         None
     };
-    let _tools = tools::all_tools(security, mem.clone(), composio_key);
+    let _tools = tools::all_tools(&security, mem.clone(), composio_key, &config.browser);
 
     // ── Resolve provider ─────────────────────────────────────────
     let provider_name = provider_override
@@ -82,7 +82,7 @@ pub async fn run(
 
     // ── Build system prompt from workspace MD files (OpenClaw framework) ──
     let skills = crate::skills::load_skills(&config.workspace_dir);
-    let tool_descs: Vec<(&str, &str)> = vec![
+    let mut tool_descs: Vec<(&str, &str)> = vec![
         ("shell", "Execute terminal commands"),
         ("file_read", "Read file contents"),
         ("file_write", "Write file contents"),
@@ -90,6 +90,12 @@ pub async fn run(
         ("memory_recall", "Search memory"),
         ("memory_forget", "Delete a memory entry"),
     ];
+    if config.browser.enabled {
+        tool_descs.push((
+            "browser_open",
+            "Open approved HTTPS URLs in Brave Browser (allowlist-only, no scraping)",
+        ));
+    }
     let system_prompt = crate::channels::build_system_prompt(
         &config.workspace_dir,
         model_name,

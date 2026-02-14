@@ -26,10 +26,10 @@ cd zeroclaw
 cargo build --release
 
 # Quick setup (no prompts)
-cargo run --release -- onboard --quick --api-key sk-... --provider openrouter
+cargo run --release -- onboard --api-key sk-... --provider openrouter
 
 # Or interactive wizard
-cargo run --release -- onboard
+cargo run --release -- onboard --interactive
 
 # Chat
 cargo run --release -- agent -m "Hello, ZeroClaw!"
@@ -42,17 +42,13 @@ cargo run --release -- gateway                # default: 127.0.0.1:8080
 cargo run --release -- gateway --port 0       # random port (security hardened)
 
 # Check status
-cargo run --release -- status --verbose
+cargo run --release -- status
 
-# List tools (includes memory tools)
-cargo run --release -- tools list
+# Check channel health
+cargo run --release -- channel doctor
 
-# Test a tool directly
-cargo run --release -- tools test memory_store '{"key": "lang", "content": "User prefers Rust"}'
-cargo run --release -- tools test memory_recall '{"query": "Rust"}'
-
-# List integrations
-cargo run --release -- integrations list
+# Get integration setup details
+cargo run --release -- integrations info Telegram
 ```
 
 > **Tip:** Run `cargo install --path .` to install `zeroclaw` globally, then use `zeroclaw` instead of `cargo run --release --`.
@@ -70,7 +66,7 @@ Every subsystem is a **trait** — swap implementations with a config change, ze
 | **AI Models** | `Provider` | 22+ providers (OpenRouter, Anthropic, OpenAI, Ollama, Venice, Groq, Mistral, xAI, DeepSeek, Together, Fireworks, Perplexity, Cohere, Bedrock, etc.) | `custom:https://your-api.com` — any OpenAI-compatible API |
 | **Channels** | `Channel` | CLI, Telegram, Discord, Slack, iMessage, Matrix, Webhook | Any messaging API |
 | **Memory** | `Memory` | SQLite with hybrid search (FTS5 + vector cosine similarity), Markdown | Any persistence backend |
-| **Tools** | `Tool` | shell, file_read, file_write, memory_store, memory_recall, memory_forget, composio (optional) | Any capability |
+| **Tools** | `Tool` | shell, file_read, file_write, memory_store, memory_recall, memory_forget, browser_open (Brave + allowlist), composio (optional) | Any capability |
 | **Observability** | `Observer` | Noop, Log, Multi | Prometheus, OTel |
 | **Runtime** | `RuntimeAdapter` | Native (Mac/Linux/Pi) | Docker, WASM |
 | **Security** | `SecurityPolicy` | Gateway pairing, sandbox, allowlists, rate limits, filesystem scoping, encrypted secrets | — |
@@ -119,6 +115,16 @@ ZeroClaw enforces security at **every layer** — not just the sandbox. It passe
 
 > **Run your own nmap:** `nmap -p 1-65535 <your-host>` — ZeroClaw binds to localhost only, so nothing is exposed unless you explicitly configure a tunnel.
 
+### Channel allowlists (Telegram / Discord / Slack)
+
+Inbound sender policy is now consistent:
+
+- Empty allowlist = **deny all inbound messages**
+- `"*"` = **allow all** (explicit opt-in)
+- Otherwise = exact-match allowlist
+
+This keeps accidental exposure low by default.
+
 ## Configuration
 
 Config: `~/.zeroclaw/config.toml` (created by `onboard`)
@@ -156,6 +162,10 @@ provider = "none"               # "none", "cloudflare", "tailscale", "ngrok", "c
 [secrets]
 encrypt = true                  # API keys encrypted with local key file
 
+[browser]
+enabled = false                 # opt-in browser_open tool
+allowed_domains = ["docs.rs"]  # required when browser is enabled
+
 [composio]
 enabled = false                 # opt-in: 1000+ OAuth apps via composio.dev
 ```
@@ -172,15 +182,15 @@ enabled = false                 # opt-in: 1000+ OAuth apps via composio.dev
 
 | Command | Description |
 |---------|-------------|
-| `onboard` | Setup wizard (`--quick` for non-interactive) |
+| `onboard` | Quick setup (default) |
+| `onboard --interactive` | Full interactive 7-step wizard |
 | `agent -m "..."` | Single message mode |
 | `agent` | Interactive chat mode |
 | `gateway` | Start webhook server (default: `127.0.0.1:8080`) |
 | `gateway --port 0` | Random port mode |
-| `status -v` | Show full system status |
-| `tools list` | List available tools |
-| `tools test <name> <json>` | Test a tool directly |
-| `integrations list` | List all 50+ integrations |
+| `status` | Show full system status |
+| `channel doctor` | Run health checks for configured channels |
+| `integrations info <name>` | Show setup/status details for one integration |
 
 ## Development
 

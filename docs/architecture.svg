@@ -67,7 +67,7 @@
   <!-- Auth Gate -->
   <rect x="213" y="178" width="165" height="45" rx="8" fill="#292524" stroke="#f59e0b" stroke-width="1" stroke-dasharray="4,2"/>
   <text x="295" y="196" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="600">Auth Gate</text>
-  <text x="295" y="210" text-anchor="middle" fill="#a8a29e" font-size="8">allowed_users + webhook_secret</text>
+  <text x="295" y="210" text-anchor="middle" fill="#a8a29e" font-size="8">Channel allowlists + webhook_secret</text>
 
   <!-- Rate Limiter -->
   <rect x="213" y="230" width="165" height="45" rx="8" fill="#292524" stroke="#f59e0b" stroke-width="1" stroke-dasharray="4,2"/>
@@ -237,9 +237,9 @@
 
   <text x="695" y="618" text-anchor="middle" fill="#ef4444" font-size="9">Command allowlist</text>
   <text x="695" y="635" text-anchor="middle" fill="#ef4444" font-size="9">Path jail + traversal block</text>
-  <text x="695" y="652" text-anchor="middle" fill="#ef4444" font-size="9">Null byte injection blocked</text>
-  <text x="695" y="669" text-anchor="middle" fill="#ef4444" font-size="9">Symlink escape detection</text>
-  <text x="695" y="686" text-anchor="middle" fill="#ef4444" font-size="9">14 system dirs + 4 dotfiles blocked</text>
+  <text x="695" y="652" text-anchor="middle" fill="#ef4444" font-size="9">Browser domain allowlist</text>
+  <text x="695" y="669" text-anchor="middle" fill="#ef4444" font-size="9">Null byte + Symlink escape block</text>
+  <text x="695" y="686" text-anchor="middle" fill="#ef4444" font-size="9">System dirs + Dotfiles blocked</text>
   <text x="695" y="706" text-anchor="middle" fill="#ef4444" font-size="9">Default: Supervised + workspace-only</text>
   <text x="695" y="726" text-anchor="middle" fill="#ef4444" font-size="9">Levels: ReadOnly / Supervised / Full</text>
 
@@ -260,7 +260,7 @@
 
   <!-- ═══════════ BOTTOM: Setup Wizard ═══════════ -->
   <rect x="20" y="760" width="1060" height="170" rx="10" fill="#1c2333" stroke="#f472b6" stroke-width="1.5" filter="url(#shadow)"/>
-  <text x="550" y="785" text-anchor="middle" fill="#f9a8d4" font-size="14" font-weight="700">Setup Wizard  --  zeroclaw onboard (--quick for instant setup)</text>
+  <text x="550" y="785" text-anchor="middle" fill="#f9a8d4" font-size="14" font-weight="700">Setup Wizard  --  zeroclaw onboard (quick default | --interactive for full wizard)</text>
   <text x="550" y="802" text-anchor="middle" fill="#7d8590" font-size="10">7 steps, under 60 seconds | Live connection testing | Secure defaults</text>
 
   <!-- Wizard steps: 7 -->
@@ -308,5 +308,5 @@
   <text x="550" y="907" text-anchor="middle" fill="#4ade80" font-size="12" font-weight="600">Ready -- zeroclaw agent</text>
 
   <!-- Footer stats -->
-  <text x="550" y="942" text-anchor="middle" fill="#7d8590" font-size="10">~3.4MB binary  |  &lt;10ms startup  |  1,017 tests  |  22+ providers  |  8 traits  |  17,800+ lines of Rust  |  0 clippy warnings</text>
+  <text x="550" y="942" text-anchor="middle" fill="#7d8590" font-size="10">~3.4MB binary  |  &lt;10ms startup  |  1,050 tests  |  22+ providers  |  8 traits  |  18,900+ lines of Rust  |  0 clippy warnings</text>
 </svg>

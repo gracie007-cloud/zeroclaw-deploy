@@ -45,6 +45,9 @@ pub struct Config {
 
     #[serde(default)]
     pub secrets: SecretsConfig,
+
+    #[serde(default)]
+    pub browser: BrowserConfig,
 }
 
 // ── Gateway security ─────────────────────────────────────────────
@@ -118,6 +121,18 @@ impl Default for SecretsConfig {
     fn default() -> Self {
         Self { encrypt: true }
     }
+}
+
+// ── Browser (friendly-service browsing only) ───────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BrowserConfig {
+    /// Enable `browser_open` tool (opens URLs in Brave without scraping)
+    #[serde(default)]
+    pub enabled: bool,
+    /// Allowed domains for `browser_open` (exact or subdomain match)
+    #[serde(default)]
+    pub allowed_domains: Vec<String>,
 }
 
 // ── Memory ───────────────────────────────────────────────────
@@ -455,6 +470,7 @@ impl Default for Config {
             gateway: GatewayConfig::default(),
             composio: ComposioConfig::default(),
             secrets: SecretsConfig::default(),
+            browser: BrowserConfig::default(),
         }
     }
 }
@@ -596,6 +612,7 @@ mod tests {
             gateway: GatewayConfig::default(),
             composio: ComposioConfig::default(),
             secrets: SecretsConfig::default(),
+            browser: BrowserConfig::default(),
         };
 
         let toml_str = toml::to_string_pretty(&config).unwrap();
@@ -659,6 +676,7 @@ default_temperature = 0.7
             gateway: GatewayConfig::default(),
             composio: ComposioConfig::default(),
             secrets: SecretsConfig::default(),
+            browser: BrowserConfig::default(),
         };
 
         config.save().unwrap();
@@ -1060,5 +1078,39 @@ default_temperature = 0.7
         assert!(!c.composio.enabled);
         assert!(c.composio.api_key.is_none());
         assert!(c.secrets.encrypt);
+        assert!(!c.browser.enabled);
+        assert!(c.browser.allowed_domains.is_empty());
+    }
+
+    #[test]
+    fn browser_config_default_disabled() {
+        let b = BrowserConfig::default();
+        assert!(!b.enabled);
+        assert!(b.allowed_domains.is_empty());
+    }
+
+    #[test]
+    fn browser_config_serde_roundtrip() {
+        let b = BrowserConfig {
+            enabled: true,
+            allowed_domains: vec!["example.com".into(), "docs.example.com".into()],
+        };
+        let toml_str = toml::to_string(&b).unwrap();
+        let parsed: BrowserConfig = toml::from_str(&toml_str).unwrap();
+        assert!(parsed.enabled);
+        assert_eq!(parsed.allowed_domains.len(), 2);
+        assert_eq!(parsed.allowed_domains[0], "example.com");
+    }
+
+    #[test]
+    fn browser_config_backward_compat_missing_section() {
+        let minimal = r#"
+workspace_dir = "/tmp/ws"
+config_path = "/tmp/config.toml"
+default_temperature = 0.7
+"#;
+        let parsed: Config = toml::from_str(minimal).unwrap();
+        assert!(!parsed.browser.enabled);
+        assert!(parsed.browser.allowed_domains.is_empty());
     }
 }

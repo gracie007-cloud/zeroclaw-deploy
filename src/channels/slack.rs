@@ -21,11 +21,9 @@ impl SlackChannel {
     }
 
     /// Check if a Slack user ID is in the allowlist.
-    /// Empty list or `["*"]` means allow everyone.
+    /// Empty list means deny everyone until explicitly configured.
+    /// `"*"` means allow everyone.
     fn is_user_allowed(&self, user_id: &str) -> bool {
-        if self.allowed_users.is_empty() {
-            return true;
-        }
         self.allowed_users.iter().any(|u| u == "*" || u == user_id)
     }
 
@@ -187,10 +185,10 @@ mod tests {
     }
 
     #[test]
-    fn empty_allowlist_allows_everyone() {
+    fn empty_allowlist_denies_everyone() {
         let ch = SlackChannel::new("xoxb-fake".into(), None, vec![]);
-        assert!(ch.is_user_allowed("U12345"));
-        assert!(ch.is_user_allowed("anyone"));
+        assert!(!ch.is_user_allowed("U12345"));
+        assert!(!ch.is_user_allowed("anyone"));
     }
 
     #[test]
