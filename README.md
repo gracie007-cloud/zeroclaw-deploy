@@ -25,11 +25,11 @@ git clone https://github.com/theonlyhennygod/zeroclaw.git
 cd zeroclaw
 cargo build --release
 
-# Initialize config + workspace
-cargo run --release -- onboard
+# Quick setup (no prompts)
+cargo run --release -- onboard --quick --api-key sk-... --provider openrouter
 
-# Set your API key
-export OPENROUTER_API_KEY="sk-..."
+# Or interactive wizard
+cargo run --release -- onboard
 
 # Chat
 cargo run --release -- agent -m "Hello, ZeroClaw!"
@@ -79,25 +79,21 @@ Every subsystem is a **trait** — swap implementations with a config change, ze
 | **Skills** | Loader | TOML manifests + SKILL.md instructions | Community skill packs |
 | **Integrations** | Registry | 50+ integrations across 9 categories | Plugin system |
 
-### Memory System
+### Memory System (Full-Stack Search Engine)
 
-ZeroClaw has a built-in brain. The agent automatically:
-1. **Recalls** relevant memories before each prompt (hybrid FTS5 + vector search with context injection)
-2. **Saves** conversation turns to memory (auto-save with embeddings)
-3. **Manages** its own memory via tools (store/recall/forget)
+All custom, zero external dependencies — no Pinecone, no Elasticsearch, no LangChain:
 
-The default **SQLite** backend includes:
-- **FTS5 full-text search** with BM25 ranking for keyword queries
-- **Vector embeddings** (OpenAI or pluggable) with cosine similarity for semantic search
-- **Hybrid merge** — weighted combination of keyword + vector results (configurable: 0.3/0.7 default)
-- **Embedding cache** with LRU eviction (default: 10,000 entries)
-- **Markdown-aware chunking** — splits documents by headings, respects token limits
-- **LIKE fallback** when FTS5 and vector return no results
-- **Upsert, delete, reindex** — full CRUD with automatic embedding refresh
+| Layer | Implementation |
+|-------|---------------|
+| **Vector DB** | Embeddings stored as BLOB in SQLite, cosine similarity search |
+| **Keyword Search** | FTS5 virtual tables with BM25 scoring |
+| **Hybrid Merge** | Custom weighted merge function (`vector.rs`) |
+| **Embeddings** | `EmbeddingProvider` trait — OpenAI, custom URL, or noop |
+| **Chunking** | Line-based markdown chunker with heading preservation |
+| **Caching** | SQLite `embedding_cache` table with LRU eviction |
+| **Safe Reindex** | Rebuild FTS5 + re-embed missing vectors atomically |
 
-**Markdown** backend available for human-readable, append-only, git-friendly storage.
-
-Switch with one config line:
+The agent automatically recalls, saves, and manages memory via tools.
 
 ```toml
 [memory]
@@ -230,49 +226,6 @@ funnel = true            # true = public internet, false = tailnet only
 
 The tunnel starts automatically with `zeroclaw gateway` and prints the public URL.
 
-## Composio Integration (Optional)
-
-ZeroClaw can optionally connect to **1000+ apps** via [Composio](https://composio.dev) managed OAuth — Gmail, Notion, GitHub, Slack, Google Calendar, and more. Your core agent stays local; Composio handles OAuth tokens.
-
-```toml
-[composio]
-enabled = true
-api_key = "enc:a1b2c3..."   # encrypted with local key
-entity_id = "default"
-```
-
-The setup wizard asks: **Sovereign (local only)** vs **Composio (managed OAuth)**.
-
-| Mode | Pros | Cons |
-|------|------|------|
-| **Sovereign** | Full privacy, no external deps | You manage every API key |
-| **Composio** | 1000+ OAuth apps, revocable tokens | Composio API key required |
-
-Use the `composio` tool from the agent:
-```
-> List my Gmail actions
-> Execute GMAIL_FETCH_EMAILS
-> Connect my Notion account
-```
-
-## Encrypted Secrets
-
-API keys in `config.toml` are encrypted by default using a local key file (`~/.zeroclaw/.secret_key`, mode `0600`).
-
-- **Encrypted values** are prefixed with `enc:` followed by hex-encoded ciphertext
-- **Plaintext values** (backward compatible) are used as-is — no prefix
-- **Disable** with `secrets.encrypt = false` if you prefer plaintext
-
-```toml
-[secrets]
-encrypt = true   # default: true — API keys stored encrypted
-```
-
-This prevents:
-- Plaintext API key exposure in config files
-- Accidental `git commit` of raw keys
-- Casual `grep` / log scraping attacks
-
 ## Configuration
 
 Config: `~/.zeroclaw/config.toml` (created by `onboard`)
@@ -307,12 +260,11 @@ interval_minutes = 30
 [tunnel]
 provider = "none"               # "none", "cloudflare", "tailscale", "ngrok", "custom"
 
-[composio]
-enabled = false                 # opt-in: managed OAuth tools via Composio
-# api_key = "enc:..."           # set via onboard wizard or manually
-
 [secrets]
-encrypt = true                  # encrypt API keys in config.toml
+encrypt = true                  # API keys encrypted with local key file
+
+[composio]
+enabled = false                 # opt-in: 1000+ OAuth apps via composio.dev
 ```
 
 ## Gateway API
@@ -338,53 +290,19 @@ The actual port is printed on startup and passed to the tunnel system automatica
 
 | Command | Description |
 |---------|-------------|
-| `onboard` | Interactive setup wizard |
+| `onboard` | Setup wizard (`--quick` for non-interactive) |
 | `agent -m "..."` | Single message mode |
 | `agent` | Interactive chat mode |
 | `gateway` | Start webhook server (default: `127.0.0.1:8080`) |
 | `gateway --port 0` | Random port mode |
 | `status -v` | Show full system status |
-| `tools list` | List all 7 tools (6 core + composio if enabled) |
+| `tools list` | List available tools |
 | `tools test <name> <json>` | Test a tool directly |
 | `integrations list` | List all 50+ integrations |
 
 ## Documentation Index
 
 Fetch the complete documentation index at: https://docs.openclaw.ai/llms.txt
-Use this file to discover all available pages before exploring further.
-
-## Token Use & Costs
-
-ZeroClaw tracks **tokens**, not characters. Tokens are model-specific, but most
-OpenAI-style models average ~4 characters per token for English text.
-
-### How the system prompt is built
-
-ZeroClaw assembles its own system prompt on every run. It includes:
-
-* Tool list + short descriptions
-* Skills list (only metadata; instructions are loaded on demand with `read`)
-* Safety guardrails
-* Workspace + bootstrap files (`AGENTS.md`, `SOUL.md`, `TOOLS.md`, `IDENTITY.md`, `USER.md`, `HEARTBEAT.md`, `BOOTSTRAP.md` when new, plus `MEMORY.md`). Large files are truncated at 20,000 characters. `memory/*.md` files are on-demand via memory tools and are not auto-injected.
-* Time (UTC + user timezone)
-* Runtime metadata (host/OS/model)
-
-### What counts in the context window
-
-Everything the model receives counts toward the context limit:
-
-* System prompt (all sections listed above)
-* Conversation history (user + assistant messages)
-* Tool calls and tool results
-* Memory context (injected before each prompt via hybrid recall)
-* Provider wrappers or safety headers (not visible, but still counted)
-
-### Tips for reducing token pressure
-
-* Use smaller models for verbose, exploratory work
-* Trim large tool outputs in your workflows
-* Keep skill descriptions short (skill list is injected into the prompt)
-* Adjust `auto_save` to avoid excessive memory growth
 
 ## Development
 
@@ -484,7 +402,7 @@ src/
 │   ├── memory_store.rs  # Store to memory
 │   ├── memory_recall.rs # Search memory
 │   ├── memory_forget.rs # Delete from memory
-│   ├── composio.rs      # Composio managed OAuth tools (optional)
+│   ├── composio.rs      # Composio OAuth tools (optional)
 │   └── mod.rs           # Registry
 └── tunnel/              # Tunnel trait + 5 implementations
     ├── none.rs          # Local-only (default)
