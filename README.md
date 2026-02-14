@@ -15,7 +15,7 @@
 The fastest, smallest, fully autonomous AI assistant — deploy anywhere, swap anything.
 
 ```
-~3.4MB binary · <10ms startup · 943 tests · 22+ providers · 8 traits · Pluggable everything
+~3.4MB binary · <10ms startup · 1,017 tests · 22+ providers · 8 traits · Pluggable everything
 ```
 
 ## Quick Start
@@ -391,7 +391,7 @@ Everything the model receives counts toward the context limit:
 ```bash
 cargo build              # Dev build
 cargo build --release    # Release build (~3.4MB)
-cargo test               # 943 tests
+cargo test               # 1,017 tests
 cargo clippy             # Lint (0 warnings)
 cargo fmt                # Format
 
@@ -504,7 +504,7 @@ tests/
 └── memory_comparison.rs  # SQLite vs Markdown benchmark
 ```
 
-**62 source files · 16,500 lines of Rust · 943 tests · 0 clippy warnings**
+**64 source files · 17,500 lines of Rust · 1,017 tests · 0 clippy warnings**
 
 ## License
 
