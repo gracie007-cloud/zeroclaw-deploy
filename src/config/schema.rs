@@ -39,6 +39,12 @@ pub struct Config {
 
     #[serde(default)]
     pub gateway: GatewayConfig,
+
+    #[serde(default)]
+    pub composio: ComposioConfig,
+
+    #[serde(default)]
+    pub secrets: SecretsConfig,
 }
 
 // ── Gateway security ─────────────────────────────────────────────
@@ -67,6 +73,50 @@ impl Default for GatewayConfig {
             allow_public_bind: false,
             paired_tokens: Vec::new(),
         }
+    }
+}
+
+// ── Composio (managed tool surface) ─────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComposioConfig {
+    /// Enable Composio integration for 1000+ OAuth tools
+    #[serde(default)]
+    pub enabled: bool,
+    /// Composio API key (stored encrypted when secrets.encrypt = true)
+    #[serde(default)]
+    pub api_key: Option<String>,
+    /// Default entity ID for multi-user setups
+    #[serde(default = "default_entity_id")]
+    pub entity_id: String,
+}
+
+fn default_entity_id() -> String {
+    "default".into()
+}
+
+impl Default for ComposioConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            api_key: None,
+            entity_id: default_entity_id(),
+        }
+    }
+}
+
+// ── Secrets (encrypted credential store) ────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecretsConfig {
+    /// Enable encryption for API keys and tokens in config.toml
+    #[serde(default = "default_true")]
+    pub encrypt: bool,
+}
+
+impl Default for SecretsConfig {
+    fn default() -> Self {
+        Self { encrypt: true }
     }
 }
 
@@ -403,6 +453,8 @@ impl Default for Config {
             memory: MemoryConfig::default(),
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
+            composio: ComposioConfig::default(),
+            secrets: SecretsConfig::default(),
         }
     }
 }
@@ -542,6 +594,8 @@ mod tests {
             memory: MemoryConfig::default(),
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
+            composio: ComposioConfig::default(),
+            secrets: SecretsConfig::default(),
         };
 
         let toml_str = toml::to_string_pretty(&config).unwrap();
@@ -603,6 +657,8 @@ default_temperature = 0.7
             memory: MemoryConfig::default(),
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
+            composio: ComposioConfig::default(),
+            secrets: SecretsConfig::default(),
         };
 
         config.save().unwrap();
@@ -912,5 +968,97 @@ default_temperature = 0.7
             a.forbidden_paths.contains(&"~/.ssh".to_string()),
             "Must block ~/.ssh"
         );
+    }
+
+    // ══════════════════════════════════════════════════════════
+    // COMPOSIO CONFIG TESTS
+    // ══════════════════════════════════════════════════════════
+
+    #[test]
+    fn composio_config_default_disabled() {
+        let c = ComposioConfig::default();
+        assert!(!c.enabled, "Composio must be disabled by default");
+        assert!(c.api_key.is_none(), "No API key by default");
+        assert_eq!(c.entity_id, "default");
+    }
+
+    #[test]
+    fn composio_config_serde_roundtrip() {
+        let c = ComposioConfig {
+            enabled: true,
+            api_key: Some("comp-key-123".into()),
+            entity_id: "user42".into(),
+        };
+        let toml_str = toml::to_string(&c).unwrap();
+        let parsed: ComposioConfig = toml::from_str(&toml_str).unwrap();
+        assert!(parsed.enabled);
+        assert_eq!(parsed.api_key.as_deref(), Some("comp-key-123"));
+        assert_eq!(parsed.entity_id, "user42");
+    }
+
+    #[test]
+    fn composio_config_backward_compat_missing_section() {
+        let minimal = r#"
+workspace_dir = "/tmp/ws"
+config_path = "/tmp/config.toml"
+default_temperature = 0.7
+"#;
+        let parsed: Config = toml::from_str(minimal).unwrap();
+        assert!(
+            !parsed.composio.enabled,
+            "Missing [composio] must default to disabled"
+        );
+        assert!(parsed.composio.api_key.is_none());
+    }
+
+    #[test]
+    fn composio_config_partial_toml() {
+        let toml_str = r#"
+enabled = true
+"#;
+        let parsed: ComposioConfig = toml::from_str(toml_str).unwrap();
+        assert!(parsed.enabled);
+        assert!(parsed.api_key.is_none());
+        assert_eq!(parsed.entity_id, "default");
+    }
+
+    // ══════════════════════════════════════════════════════════
+    // SECRETS CONFIG TESTS
+    // ══════════════════════════════════════════════════════════
+
+    #[test]
+    fn secrets_config_default_encrypts() {
+        let s = SecretsConfig::default();
+        assert!(s.encrypt, "Encryption must be enabled by default");
+    }
+
+    #[test]
+    fn secrets_config_serde_roundtrip() {
+        let s = SecretsConfig { encrypt: false };
+        let toml_str = toml::to_string(&s).unwrap();
+        let parsed: SecretsConfig = toml::from_str(&toml_str).unwrap();
+        assert!(!parsed.encrypt);
+    }
+
+    #[test]
+    fn secrets_config_backward_compat_missing_section() {
+        let minimal = r#"
+workspace_dir = "/tmp/ws"
+config_path = "/tmp/config.toml"
+default_temperature = 0.7
+"#;
+        let parsed: Config = toml::from_str(minimal).unwrap();
+        assert!(
+            parsed.secrets.encrypt,
+            "Missing [secrets] must default to encrypt=true"
+        );
+    }
+
+    #[test]
+    fn config_default_has_composio_and_secrets() {
+        let c = Config::default();
+        assert!(!c.composio.enabled);
+        assert!(c.composio.api_key.is_none());
+        assert!(c.secrets.encrypt);
     }
 }

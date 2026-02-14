@@ -70,10 +70,10 @@ Every subsystem is a **trait** — swap implementations with a config change, ze
 | **AI Models** | `Provider` | 22+ providers (OpenRouter, Anthropic, OpenAI, Ollama, Venice, Groq, Mistral, xAI, DeepSeek, Together, Fireworks, Perplexity, Cohere, Bedrock, etc.) | `custom:https://your-api.com` — any OpenAI-compatible API |
 | **Channels** | `Channel` | CLI, Telegram, Discord, Slack, iMessage, Matrix, Webhook | Any messaging API |
 | **Memory** | `Memory` | SQLite with hybrid search (FTS5 + vector cosine similarity), Markdown | Any persistence backend |
-| **Tools** | `Tool` | shell, file_read, file_write, memory_store, memory_recall, memory_forget | Any capability |
+| **Tools** | `Tool` | shell, file_read, file_write, memory_store, memory_recall, memory_forget, composio (optional) | Any capability |
 | **Observability** | `Observer` | Noop, Log, Multi | Prometheus, OTel |
 | **Runtime** | `RuntimeAdapter` | Native (Mac/Linux/Pi) | Docker, WASM |
-| **Security** | `SecurityPolicy` | Gateway pairing, sandbox, allowlists, rate limits, filesystem scoping | — |
+| **Security** | `SecurityPolicy` | Gateway pairing, sandbox, allowlists, rate limits, filesystem scoping, encrypted secrets | — |
 | **Tunnel** | `Tunnel` | None, Cloudflare, Tailscale, ngrok, Custom | Any tunnel binary |
 | **Heartbeat** | Engine | HEARTBEAT.md periodic tasks | — |
 | **Skills** | Loader | TOML manifests + SKILL.md instructions | Community skill packs |
@@ -230,6 +230,49 @@ funnel = true            # true = public internet, false = tailnet only
 
 The tunnel starts automatically with `zeroclaw gateway` and prints the public URL.
 
+## Composio Integration (Optional)
+
+ZeroClaw can optionally connect to **1000+ apps** via [Composio](https://composio.dev) managed OAuth — Gmail, Notion, GitHub, Slack, Google Calendar, and more. Your core agent stays local; Composio handles OAuth tokens.
+
+```toml
+[composio]
+enabled = true
+api_key = "enc:a1b2c3..."   # encrypted with local key
+entity_id = "default"
+```
+
+The setup wizard asks: **Sovereign (local only)** vs **Composio (managed OAuth)**.
+
+| Mode | Pros | Cons |
+|------|------|------|
+| **Sovereign** | Full privacy, no external deps | You manage every API key |
+| **Composio** | 1000+ OAuth apps, revocable tokens | Composio API key required |
+
+Use the `composio` tool from the agent:
+```
+> List my Gmail actions
+> Execute GMAIL_FETCH_EMAILS
+> Connect my Notion account
+```
+
+## Encrypted Secrets
+
+API keys in `config.toml` are encrypted by default using a local key file (`~/.zeroclaw/.secret_key`, mode `0600`).
+
+- **Encrypted values** are prefixed with `enc:` followed by hex-encoded ciphertext
+- **Plaintext values** (backward compatible) are used as-is — no prefix
+- **Disable** with `secrets.encrypt = false` if you prefer plaintext
+
+```toml
+[secrets]
+encrypt = true   # default: true — API keys stored encrypted
+```
+
+This prevents:
+- Plaintext API key exposure in config files
+- Accidental `git commit` of raw keys
+- Casual `grep` / log scraping attacks
+
 ## Configuration
 
 Config: `~/.zeroclaw/config.toml` (created by `onboard`)
@@ -263,6 +306,13 @@ interval_minutes = 30
 
 [tunnel]
 provider = "none"               # "none", "cloudflare", "tailscale", "ngrok", "custom"
+
+[composio]
+enabled = false                 # opt-in: managed OAuth tools via Composio
+# api_key = "enc:..."           # set via onboard wizard or manually
+
+[secrets]
+encrypt = true                  # encrypt API keys in config.toml
 ```
 
 ## Gateway API
@@ -294,7 +344,7 @@ The actual port is printed on startup and passed to the tunnel system automatica
 | `gateway` | Start webhook server (default: `127.0.0.1:8080`) |
 | `gateway --port 0` | Random port mode |
 | `status -v` | Show full system status |
-| `tools list` | List all 6 tools |
+| `tools list` | List all 7 tools (6 core + composio if enabled) |
 | `tools test <name> <json>` | Test a tool directly |
 | `integrations list` | List all 50+ integrations |
 
@@ -419,13 +469,14 @@ src/
 ├── runtime/             # RuntimeAdapter trait + Native
 │   ├── traits.rs
 │   └── native.rs
-├── security/            # Security policy + gateway pairing
+├── security/            # Security policy + gateway pairing + secrets
 │   ├── policy.rs        # SecurityPolicy, path validation, rate limiting
 │   ├── pairing.rs       # PairingGuard, OTP, bearer tokens
+│   ├── secrets.rs       # Encrypted secret store (XOR + local key file)
 │   └── mod.rs
 ├── skills/              # Skill loader (TOML manifests)
 │   └── mod.rs
-├── tools/               # Tool trait + 6 tools
+├── tools/               # Tool trait + 7 tools
 │   ├── traits.rs        # Tool trait definition
 │   ├── shell.rs         # Shell command execution
 │   ├── file_read.rs     # Sandboxed file reading
@@ -433,6 +484,7 @@ src/
 │   ├── memory_store.rs  # Store to memory
 │   ├── memory_recall.rs # Search memory
 │   ├── memory_forget.rs # Delete from memory
+│   ├── composio.rs      # Composio managed OAuth tools (optional)
 │   └── mod.rs           # Registry
 └── tunnel/              # Tunnel trait + 5 implementations
     ├── none.rs          # Local-only (default)

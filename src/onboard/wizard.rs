@@ -1,7 +1,7 @@
 use crate::config::{
-    AutonomyConfig, ChannelsConfig, Config, DiscordConfig, HeartbeatConfig, IMessageConfig,
-    MatrixConfig, MemoryConfig, ObservabilityConfig, RuntimeConfig, SlackConfig, TelegramConfig,
-    WebhookConfig,
+    AutonomyConfig, ChannelsConfig, ComposioConfig, Config, DiscordConfig, HeartbeatConfig,
+    IMessageConfig, MatrixConfig, MemoryConfig, ObservabilityConfig, RuntimeConfig, SecretsConfig,
+    SlackConfig, TelegramConfig, WebhookConfig,
 };
 use crate::security::AutonomyLevel;
 use anyhow::{Context, Result};
@@ -55,22 +55,25 @@ pub fn run_wizard() -> Result<Config> {
     );
     println!();
 
-    print_step(1, 6, "Workspace Setup");
+    print_step(1, 7, "Workspace Setup");
     let (workspace_dir, config_path) = setup_workspace()?;
 
-    print_step(2, 6, "AI Provider & API Key");
+    print_step(2, 7, "AI Provider & API Key");
     let (provider, api_key, model) = setup_provider()?;
 
-    print_step(3, 6, "Channels (How You Talk to ZeroClaw)");
+    print_step(3, 7, "Channels (How You Talk to ZeroClaw)");
     let channels_config = setup_channels()?;
 
-    print_step(4, 6, "Tunnel (Expose to Internet)");
+    print_step(4, 7, "Tunnel (Expose to Internet)");
     let tunnel_config = setup_tunnel()?;
 
-    print_step(5, 6, "Project Context (Personalize Your Agent)");
+    print_step(5, 7, "Tool Mode & Security");
+    let (composio_config, secrets_config) = setup_tool_mode()?;
+
+    print_step(6, 7, "Project Context (Personalize Your Agent)");
     let project_ctx = setup_project_context()?;
 
-    print_step(6, 6, "Workspace Files");
+    print_step(7, 7, "Workspace Files");
     scaffold_workspace(&workspace_dir, &project_ctx)?;
 
     // ── Build config ──
@@ -98,6 +101,8 @@ pub fn run_wizard() -> Result<Config> {
         memory: MemoryConfig::default(), // SQLite + auto-save by default
         tunnel: tunnel_config,
         gateway: crate::config::GatewayConfig::default(),
+        composio: composio_config,
+        secrets: secrets_config,
     };
 
     println!(
@@ -533,7 +538,97 @@ fn provider_env_var(name: &str) -> &'static str {
     }
 }
 
-// ── Step 4: Project Context ─────────────────────────────────────
+// ── Step 5: Tool Mode & Security ────────────────────────────────
+
+fn setup_tool_mode() -> Result<(ComposioConfig, SecretsConfig)> {
+    print_bullet("Choose how ZeroClaw connects to external apps.");
+    print_bullet("You can always change this later in config.toml.");
+    println!();
+
+    let options = vec![
+        "Sovereign (local only) — you manage API keys, full privacy (default)",
+        "Composio (managed OAuth) — 1000+ apps via OAuth, no raw keys shared",
+    ];
+
+    let choice = Select::new()
+        .with_prompt("  Select tool mode")
+        .items(&options)
+        .default(0)
+        .interact()?;
+
+    let composio_config = if choice == 1 {
+        println!();
+        println!(
+            "  {} {}",
+            style("Composio Setup").white().bold(),
+            style("— 1000+ OAuth integrations (Gmail, Notion, GitHub, Slack, ...)").dim()
+        );
+        print_bullet("Get your API key at: https://app.composio.dev/settings");
+        print_bullet("ZeroClaw uses Composio as a tool — your core agent stays local.");
+        println!();
+
+        let api_key: String = Input::new()
+            .with_prompt("  Composio API key (or Enter to skip)")
+            .allow_empty(true)
+            .interact_text()?;
+
+        if api_key.trim().is_empty() {
+            println!(
+                "  {} Skipped — set composio.api_key in config.toml later",
+                style("→").dim()
+            );
+            ComposioConfig::default()
+        } else {
+            println!(
+                "  {} Composio: {} (1000+ OAuth tools available)",
+                style("✓").green().bold(),
+                style("enabled").green()
+            );
+            ComposioConfig {
+                enabled: true,
+                api_key: Some(api_key),
+                ..ComposioConfig::default()
+            }
+        }
+    } else {
+        println!(
+            "  {} Tool mode: {} — full privacy, you own every key",
+            style("✓").green().bold(),
+            style("Sovereign (local only)").green()
+        );
+        ComposioConfig::default()
+    };
+
+    // ── Encrypted secrets ──
+    println!();
+    print_bullet("ZeroClaw can encrypt API keys stored in config.toml.");
+    print_bullet("A local key file protects against plaintext exposure and accidental leaks.");
+
+    let encrypt = Confirm::new()
+        .with_prompt("  Enable encrypted secret storage?")
+        .default(true)
+        .interact()?;
+
+    let secrets_config = SecretsConfig { encrypt };
+
+    if encrypt {
+        println!(
+            "  {} Secrets: {} — keys encrypted with local key file",
+            style("✓").green().bold(),
+            style("encrypted").green()
+        );
+    } else {
+        println!(
+            "  {} Secrets: {} — keys stored as plaintext (not recommended)",
+            style("✓").green().bold(),
+            style("plaintext").yellow()
+        );
+    }
+
+    Ok((composio_config, secrets_config))
+}
+
+// ── Step 6: Project Context ─────────────────────────────────────
 
 fn setup_project_context() -> Result<ProjectContext> {
     print_bullet("Let's personalize your agent. You can always update these later.");

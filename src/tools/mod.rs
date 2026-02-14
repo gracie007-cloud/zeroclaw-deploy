@@ -1,3 +1,4 @@
+pub mod composio;
 pub mod file_read;
 pub mod file_write;
 pub mod memory_forget;
@@ -6,6 +7,7 @@ pub mod memory_store;
 pub mod shell;
 pub mod traits;
 
+pub use composio::ComposioTool;
 pub use file_read::FileReadTool;
 pub use file_write::FileWriteTool;
 pub use memory_forget::MemoryForgetTool;
@@ -31,16 +33,28 @@ pub fn default_tools(security: Arc<SecurityPolicy>) -> Vec<Box<dyn Tool>> {
     ]
 }
 
-/// Create full tool registry including memory tools
-pub fn all_tools(security: Arc<SecurityPolicy>, memory: Arc<dyn Memory>) -> Vec<Box<dyn Tool>> {
-    vec![
+/// Create full tool registry including memory tools and optional Composio
+pub fn all_tools(
+    security: Arc<SecurityPolicy>,
+    memory: Arc<dyn Memory>,
+    composio_key: Option<&str>,
+) -> Vec<Box<dyn Tool>> {
+    let mut tools: Vec<Box<dyn Tool>> = vec![
         Box::new(ShellTool::new(security.clone())),
         Box::new(FileReadTool::new(security.clone())),
         Box::new(FileWriteTool::new(security)),
         Box::new(MemoryStoreTool::new(memory.clone())),
         Box::new(MemoryRecallTool::new(memory.clone())),
         Box::new(MemoryForgetTool::new(memory)),
-    ]
+    ];
+
+    if let Some(key) = composio_key {
+        if !key.is_empty() {
+            tools.push(Box::new(ComposioTool::new(key)));
+        }
+    }
+
+    tools
 }
 
 pub async fn handle_command(command: super::ToolCommands, config: Config) -> Result<()> {
@@ -53,7 +67,12 @@ pub async fn handle_command(command: super::ToolCommands, config: Config) -> Res
         &config.workspace_dir,
         config.api_key.as_deref(),
     )?);
-    let tools_list = all_tools(security, mem);
+    let composio_key = if config.composio.enabled {
+        config.composio.api_key.as_deref()
+    } else {
+        None
+    };
+    let tools_list = all_tools(security, mem, composio_key);
 
     match command {
         super::ToolCommands::List => {
