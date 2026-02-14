@@ -335,8 +335,8 @@ cargo test --test memory_comparison -- --nocapture
 
 ```
 src/
-├── main.rs              # CLI (clap) — 10 subcommands
-├── lib.rs               # Library exports (8 modules)
+├── main.rs              # CLI (clap) — 9 subcommands
+├── lib.rs               # Library exports (7 modules)
 ├── agent/               # Agent loop + memory context injection
 │   ├── mod.rs
 │   └── loop_.rs
@@ -422,7 +422,7 @@ tests/
 └── memory_comparison.rs  # SQLite vs Markdown benchmark
 ```
 
-**64 source files · 17,500 lines of Rust · 1,017 tests · 0 clippy warnings**
+**64 source files · 17,800+ lines of Rust · 1,017 tests · 0 clippy warnings**
 
 ## License
 
