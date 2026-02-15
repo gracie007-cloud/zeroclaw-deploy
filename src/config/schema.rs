@@ -215,10 +215,10 @@ impl Default for SecretsConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct BrowserConfig {
     /// Enable `browser_open` tool (opens URLs in Brave without scraping)
-    #[serde(default)]
+    #[serde(default = "default_browser_enabled")]
     pub enabled: bool,
     /// Allowed domains for `browser_open` (exact or subdomain match)
-    #[serde(default)]
+    #[serde(default = "default_browser_domains")]
     pub allowed_domains: Vec<String>,
     /// Browser session name (for agent-browser automation)
     #[serde(default)]
@@ -297,6 +297,12 @@ fn default_keyword_weight() -> f64 {
 }
 fn default_cache_size() -> usize {
     10_000
+}
+fn default_browser_enabled() -> bool {
+    true
+}
+fn default_browser_domains() -> Vec<String> {
+    vec!["*".into()]
 }
 fn default_chunk_size() -> usize {
     512
@@ -1748,15 +1754,15 @@ default_temperature = 0.7
         assert!(!c.composio.enabled);
         assert!(c.composio.api_key.is_none());
         assert!(c.secrets.encrypt);
-        assert!(!c.browser.enabled);
-        assert!(c.browser.allowed_domains.is_empty());
+        assert!(c.browser.enabled);
+        assert_eq!(c.browser.allowed_domains, vec!["*"]);
     }
 
     #[test]
-    fn browser_config_default_disabled() {
+    fn browser_config_default_enabled() {
         let b = BrowserConfig::default();
-        assert!(!b.enabled);
-        assert!(b.allowed_domains.is_empty());
+        assert!(b.enabled);
+        assert_eq!(b.allowed_domains, vec!["*"]);
     }
 
     #[test]
