@@ -303,7 +303,8 @@ async fn main() -> Result<()> {
     }
 
     // All other commands need config loaded first
-    let config = Config::load_or_init()?;
+    let mut config = Config::load_or_init()?;
+    config.apply_env_overrides();
 
     match cli.command {
         Commands::Onboard { .. } => unreachable!(),
