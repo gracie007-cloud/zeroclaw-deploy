@@ -931,6 +931,16 @@ impl Config {
                 }
             }
         }
+
+        // Telegram: TELEGRAM_BOT_TOKEN
+        if let Ok(token) = std::env::var("TELEGRAM_BOT_TOKEN") {
+            if !token.is_empty() {
+                self.channels_config.telegram = Some(TelegramConfig {
+                    bot_token: token,
+                    allowed_users: vec![],
+                });
+            }
+        }
     }
 
     pub fn save(&self) -> Result<()> {

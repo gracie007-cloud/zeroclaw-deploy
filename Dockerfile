@@ -60,13 +60,10 @@ COPY --from=permissions /zeroclaw-data /zeroclaw-data
 
 ENV ZEROCLAW_WORKSPACE=/zeroclaw-data/workspace
 ENV HOME=/zeroclaw-data
-ENV PROVIDER="openrouter"
-ENV ZEROCLAW_MODEL="anthropic/claude-sonnet-4-20250514"
 ENV ZEROCLAW_GATEWAY_PORT=3000
-ENV TELEGRAM_BOT_TOKEN="7652109185:AAEdM-qbi72WAcL-Bwhsbw_-d0ZesG0yfz8"
 
 WORKDIR /zeroclaw-data
 USER 65534:65534
 EXPOSE 3000
 ENTRYPOINT ["zeroclaw"]
-CMD ["gateway", "--port", "3000", "--host", "[::]"]
+CMD ["daemon", "--port", "3000", "--host", "[::]"]
