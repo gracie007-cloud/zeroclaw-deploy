@@ -932,12 +932,17 @@ impl Config {
             }
         }
 
-        // Telegram: TELEGRAM_BOT_TOKEN
+        // Telegram: TELEGRAM_BOT_TOKEN + optional TELEGRAM_ALLOWED_USERS (comma-separated)
         if let Ok(token) = std::env::var("TELEGRAM_BOT_TOKEN") {
             if !token.is_empty() {
+                let allowed_users = std::env::var("TELEGRAM_ALLOWED_USERS")
+                    .ok()
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.split(',').map(|u| u.trim().to_string()).collect())
+                    .unwrap_or_else(|| vec!["*".into()]);
                 self.channels_config.telegram = Some(TelegramConfig {
                     bot_token: token,
-                    allowed_users: vec![],
+                    allowed_users,
                 });
             }
         }
