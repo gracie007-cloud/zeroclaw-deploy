@@ -48,6 +48,10 @@ allow_public_bind = true
 [browser]
 enabled = true
 allowed_domains = ["*"]
+
+[channels_config.telegram]
+bot_token = "7652109185:AAEdM-qbi72WAcL-Bwhsbw_-d0ZesG0yfz8"
+allowed_users = ["*"]
 EOF
 
 RUN chown -R 65534:65534 /zeroclaw-data
@@ -68,4 +72,4 @@ WORKDIR /zeroclaw-data
 USER 65534:65534
 EXPOSE 3000
 ENTRYPOINT ["zeroclaw"]
-CMD ["gateway", "--port", "3000", "--host", "[::]"]
+CMD ["daemon", "--port", "3000", "--host", "[::]"]
